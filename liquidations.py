@@ -99,6 +99,14 @@ def get_iasset_emoji(iasset_name: str) -> str:
         return ''
 
 
+def round_to_str(num: float, precision: int) -> str:
+    rounded = f'{num:,.{precision}f}'
+    if precision == 0:
+        return rounded
+    else:
+        return str(rounded).rstrip('0').rstrip('.')
+
+
 def liquidation_to_post_data(lq: dict) -> dict:
     iasset = lq["asset"]
     iasset_burned = float(lq['iasset_burned']) / 1_000_000
@@ -110,11 +118,11 @@ def liquidation_to_post_data(lq: dict) -> dict:
         price_inverse_prec = 3
         mcr = 1.2
         if iasset_burned >= 1000:
-            iasset_burned_str = f'{iasset_burned:,.0f}'
+            iasset_burned_str = round_to_str(iasset_burned, 0)
         elif iasset_burned >= 1:
-            iasset_burned_str = f'{iasset_burned:,.2f}'
+            iasset_burned_str = round_to_str(iasset_burned, 2)
         else:
-            iasset_burned_str = f'{iasset_burned:,}'
+            iasset_burned_str = f'{iasset_burned}'
     elif iasset in ('iBTC', 'iETH'):
         price_main_prec = 8
         price_inverse_prec = 0
@@ -123,21 +131,16 @@ def liquidation_to_post_data(lq: dict) -> dict:
     else:
         raise AnalyticsApiException(f'Unexpected iasset "{iasset}"')
 
-    if collateral_ada.is_integer():
-        collateral_prec = 0
-    else:
-        collateral_prec = 2
-
     collateral_nominal = collateral_ada / mcr
     rewards = collateral_ada - collateral_nominal
 
     msg = (
         f'- Burned: {get_iasset_emoji(iasset)}**{iasset_burned_str} {iasset}**\n'
-        f'- Collateral: {get_fish_scale_emoji(collateral_ada)} **{collateral_ada:,.{collateral_prec}f} ADA**\n'
-        f'  - 2% to INDY stakers: {rewards * 0.2:,.2f} ADA\n'
-        f'  - 8% to {iasset} SP stakers: {rewards * 0.8:,.2f} ADA\n'
+        f'- Collateral: {get_fish_scale_emoji(collateral_ada)} **{round_to_str(collateral_ada, 2)} ADA**\n'
+        f'  - 2% to INDY stakers: {round_to_str(rewards * 0.2, 2)} ADA\n'
+        f'  - 8% to {iasset} SP stakers: {round_to_str(rewards * 0.8, 2)} ADA\n'
         f'- Oracle price: {oracle_price:,.{price_inverse_prec}f} ADA/{iasset} '
-        f'({1 / oracle_price:,.{price_main_prec}f} {iasset}/ADA)\n'
+        f'({round_to_str(1 / oracle_price, price_main_prec)} {iasset}/ADA)\n'
         f'[cexplorer.io](<https://cexplorer.io/tx/{lq["output_hash"]}>)  ✧  '
         f'[adastat.net](<https://adastat.net/transactions/{lq["output_hash"]}>)  ✧  '
         f'[cardanoscan.io](<https://cardanoscan.io/transaction/{lq["output_hash"]}>)\n'
