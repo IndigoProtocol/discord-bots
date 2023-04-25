@@ -228,8 +228,10 @@ if __name__ == '__main__':
                 logger.info(f'New liquidation, new last id: {last_lq["id"]}')
             else:
                 logger.info(f'No new liquidations, last: {last_lq["id"]}')
-
-            time.sleep(119)
+        except urllib.error.URLError as err:
+            logger.warn(err)
         except AnalyticsApiException as err:
             logger.error(err)
             sys.exit(1)
+        finally:
+            time.sleep(119)
