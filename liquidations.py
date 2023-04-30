@@ -210,11 +210,22 @@ def setup_logging() -> logging.Logger:
     return logger
 
 
+def webhook_sanity_check():
+    if not WEBHOOK_URL:
+        raise Exception('WEBHOOK_URL env var not set')
+    elif not WEBHOOK_URL.startswith('https://discord.com/api/webhooks/'):
+        raise Exception("WEBHOOK_URL isn't https://discord.com/api/webhooks/…")
+    elif len(WEBHOOK_URL) != 121:
+        raise Exception('WEBHOOK_URL length not 121')
+
+
 if __name__ == '__main__':
     logger = setup_logging()
 
-    if not WEBHOOK_URL:
-        logger.error('WEBHOOK_URL env var not set')
+    try:
+        webhook_sanity_check()
+    except Exception as e:
+        logger.error(e)
         sys.exit(1)
 
     last_lq = get_last(fetch_liquidations())
