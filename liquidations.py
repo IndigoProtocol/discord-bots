@@ -143,7 +143,7 @@ def liquidation_to_post_data(lq: dict) -> dict:
         f'  - 2% to INDY stakers: {round_to_str(indy_staker_rewards, 2)} ADA\n'
         f'  - {round_to_str(sp_staker_pct, 1)}% to {iasset} SP stakers: {round_to_str(sp_staker_rewards, 2)} ADA\n'
         f'- Oracle price: {oracle_price:,.{price_inverse_prec}f} ADA/{iasset} '
-        f'({round_to_str(1 / oracle_price, price_main_prec)} {iasset}/ADA)\n'
+        f'({1 / oracle_price:,.{price_main_prec}f} {iasset}/ADA)\n'
         f'[cexplorer.io](<https://cexplorer.io/tx/{lq["output_hash"]}>)  ✧  '
         f'[adastat.net](<https://adastat.net/transactions/{lq["output_hash"]}>)  ✧  '
         f'[cardanoscan.io](<https://cardanoscan.io/transaction/{lq["output_hash"]}>)\n'
