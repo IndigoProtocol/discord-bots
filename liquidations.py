@@ -169,7 +169,13 @@ def check_liquidations(last_processed: dict) -> dict:
         The last processed liquidation.
     '''
     local_last = last_processed
-    new_lqs = fetch_liquidations(slot_to_timestamp(last_processed['slot']))
+
+    try:
+        new_lqs = fetch_liquidations(slot_to_timestamp(last_processed['slot']))
+    except urllib.error.URLError as err:
+        logger.warn(f'HTTP error (Analytics API): {err}')
+        return local_last
+
     logger.debug(f'Fetched {len(new_lqs)} new liquidations from API')
 
     for lq in new_lqs:
@@ -180,7 +186,7 @@ def check_liquidations(last_processed: dict) -> dict:
             try:
                 discord_comment(liquidation_to_post_data(lq))
             except urllib.error.URLError as err:
-                logger.warn(f'HTTP error: {err}')
+                logger.warn(f'HTTP error (Discord webhook): {err}')
                 return local_last
         if lq['id'] > local_last['id']:
             local_last = lq
