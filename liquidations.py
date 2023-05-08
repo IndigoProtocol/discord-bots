@@ -173,7 +173,7 @@ def check_liquidations(last_processed: dict) -> dict:
     try:
         new_lqs = fetch_liquidations(slot_to_timestamp(last_processed['slot']))
     except urllib.error.URLError as err:
-        logger.warn(f'HTTP error (Analytics API): {err}')
+        logger.warning(f'HTTP error (Analytics API): {err}')
         return local_last
 
     logger.debug(f'Fetched {len(new_lqs)} new liquidations from API')
@@ -186,7 +186,7 @@ def check_liquidations(last_processed: dict) -> dict:
             try:
                 discord_comment(liquidation_to_post_data(lq))
             except urllib.error.URLError as err:
-                logger.warn(f'HTTP error (Discord webhook): {err}')
+                logger.warning(f'HTTP error (Discord webhook): {err}')
                 return local_last
         if lq['id'] > local_last['id']:
             local_last = lq
@@ -246,7 +246,7 @@ if __name__ == '__main__':
             else:
                 logger.info(f'No new liquidations, last: {last_lq["id"]}')
         except urllib.error.URLError as err:
-            logger.warn(err)
+            logger.warning(err)
         except AnalyticsApiException as err:
             logger.error(err)
             sys.exit(1)
