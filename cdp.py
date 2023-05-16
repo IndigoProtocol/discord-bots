@@ -105,7 +105,10 @@ def event_to_discord_comment(event: CdpEvent) -> str:
         CdpEventType.DEPOSIT,
         CdpEventType.WITHDRAW,
     ):
-        pct_change = (event.ada / event.new_collateral) * 100
+        if event.type == CdpEventType.DEPOSIT:
+            pct_change = (event.ada / event.new_collateral) * 100
+        else:
+            pct_change = -1 * event.ada / (event.ada + event.new_collateral) * 100
         pct_prec = 1 if pct_change < 1 else 0
         collateral = f'{event.new_collateral:,.0f}'
         lines.append(f'• New total: {collateral} ADA')
