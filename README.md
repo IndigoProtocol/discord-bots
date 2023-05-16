@@ -1,5 +1,17 @@
 # Indigo Discord Bots
 
+[![Python - >=3.10](https://img.shields.io/badge/Python->=3.10-2ea44f?logo=python)](https://python.org/)
+
+## How to run
+
+```shell
+WEBHOOK_URL='https://discord.com/api/webhooks/…' python3 cdp.py
+```
+
+```shell
+WEBHOOK_URL='https://discord.com/api/webhooks/…' python3 liquidations.py
+```
+
 ## Bot ideas
 
 - Vote results, final and on-demand partial
