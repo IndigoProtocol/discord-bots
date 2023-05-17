@@ -60,7 +60,7 @@ def get_iasset_emoji(iasset_name: str) -> str:
     }
 
     if iasset_name in discord_emojis:
-        return discord_emojis[iasset_name] + ' '
+        return discord_emojis[iasset_name]
     else:
         return ''
 
