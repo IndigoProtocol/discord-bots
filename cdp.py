@@ -109,7 +109,7 @@ def event_to_discord_comment(event: CdpEvent) -> str:
             pct_change = (event.ada / event.new_collateral) * 100
         else:
             pct_change = -1 * event.ada / (event.ada + event.new_collateral) * 100
-        pct_prec = 1 if abs(pct_change) < 1 else 0
+        pct_prec = 0 if 1 <= abs(pct_change) <= 99 else 1
         collateral = f'{event.new_collateral:,.0f}'
         lines.append(f'• New total: {collateral} ADA')
         lines.append(f'• Change: {pct_change:+.{pct_prec}f}%')
