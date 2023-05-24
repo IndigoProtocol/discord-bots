@@ -7,6 +7,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Any
 
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 
@@ -149,9 +150,19 @@ def liquidation_to_post_data(lq: dict) -> dict:
         f'[cardanoscan.io](<https://cardanoscan.io/transaction/{lq["output_hash"]}>)\n'
     )
 
-    post_data = {
+    post_data: dict[str, Any] = {
         'content': msg,
     }
+
+    if collateral_ada >= 10_000:
+        post_data['embeds'] = [
+            {
+                'image': {
+                    # Mortal Kombat "Finish Him", "Liquidated" meme, with Indigo logo.
+                    'url': 'https://media.discordapp.net/attachments/816779566517321830/1108886710701523034/vllo.gif'
+                }
+            }
+        ]
 
     return post_data
 
