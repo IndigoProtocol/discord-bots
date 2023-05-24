@@ -60,18 +60,18 @@ def timestamp_to_slot(unix_time: int) -> int:
 def get_fish_scale_emoji(ada: float) -> str:
     if not ada:
         return ''
-    elif ada < 100:
-        return '🦐'
     elif ada < 1000:
-        return '🐟'
+        return '🦐'
     elif ada < 10_000:
-        return '🐬'
+        return '🐟'
     elif ada < 100_000:
-        return '🦈'
+        return '🐬'
     elif ada < 1_000_000:
-        return '🐳'
-    else:
+        return '🦈'
+    elif ada >= 1_000_000:
         return '🐳' + math.floor(ada / 1_000_000) * '🚨'
+    else:
+        return ''
 
 
 def get_iasset_icon_url(iasset_name: str) -> str | None:

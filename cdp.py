@@ -76,9 +76,7 @@ def get_fish_scale_emoji(ada: float) -> str:
         return '🐬'
     elif ada < 1_000_000:
         return '🦈'
-    elif ada < 2_000_000:
-        return '🐳'
-    elif ada >= 2_000_000:
+    elif ada >= 1_000_000:
         return '🐳' + math.floor(ada / 1_000_000) * '🚨'
     else:
         return ''
