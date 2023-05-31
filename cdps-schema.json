@@ -1,0 +1,34 @@
+{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "output_hash": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "output_index": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "owner": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{56}$"
+      },
+      "asset": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 4
+      },
+      "collateralAmount": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "mintedAmount": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "required": ["output_hash", "output_index", "owner", "asset", "collateralAmount", "mintedAmount"]
+  }
+}

@@ -12,6 +12,8 @@ import urllib.request
 from dataclasses import dataclass
 from enum import Enum, auto
 
+import jsonschema
+
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 
 
@@ -157,7 +159,21 @@ def fetch_cdps(log_dir: str, at_unix_time: float | None = None):
     with gzip.open(os.path.join(log_dir, filename), 'wt') as log_file:
         json.dump(json_response, log_file, indent=4)
 
+    validate_cdps_json(json_response, filename)
+
     return json_response
+
+
+def validate_cdps_json(json_response, log_file: str) -> None:
+    with open('cdps-schema.json') as f:
+        schema = json.load(f)
+    try:
+        jsonschema.validate(json_response, schema)
+    except jsonschema.exceptions.ValidationError as e:
+        logger.error('/cdps response not valid against schema')
+        logger.error(e)
+        logger.error(f'Log of invalid JSON: {log_file}')
+        print(e)
 
 
 def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpEvent]:

@@ -5,6 +5,7 @@
 ## How to run
 
 ```shell
+sudo apt install python3-jsonschema
 WEBHOOK_URL='https://discord.com/api/webhooks/…' python3 cdp.py
 ```
 
