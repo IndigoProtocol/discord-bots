@@ -1,4 +1,5 @@
 import datetime
+import gzip
 import json
 import logging
 import math
@@ -132,7 +133,7 @@ def event_to_discord_comment(event: CdpEvent) -> str:
     return '\n'.join(lines)
 
 
-def fetch_cdps(at_unix_time: float | None = None):
+def fetch_cdps(log_dir: str, at_unix_time: float | None = None):
     url = 'https://analytics.indigoprotocol.io/api/cdps'
     headers = {'Content-Type': 'application/json'}
 
@@ -146,6 +147,16 @@ def fetch_cdps(at_unix_time: float | None = None):
     f = urllib.request.urlopen(req)
     response = f.read().decode('utf-8')
     json_response = json.loads(response)
+
+    if at_unix_time is not None:
+        dt = datetime.datetime.fromtimestamp(at_unix_time)
+    else:
+        dt = datetime.datetime.now()
+
+    filename = dt.strftime('%Y-%m-%d-%H-%M-%S-') + str(int(dt.timestamp())) + '.json.gz'
+    with gzip.open(os.path.join(log_dir, filename), 'wt') as log_file:
+        json.dump(json_response, log_file, indent=4)
+
     return json_response
 
 
@@ -237,10 +248,10 @@ def webhook_sanity_check():
         raise Exception('WEBHOOK_URL length not 121')
 
 
-def get_old_cdps(time_window: datetime.timedelta) -> list[dict]:
+def get_old_cdps(log_dir: str, time_window: datetime.timedelta) -> list[dict]:
     now = datetime.datetime.utcnow()
     old_cdps = now - time_window
-    return fetch_cdps(old_cdps.timestamp())
+    return fetch_cdps(log_dir, old_cdps.timestamp())
 
 
 if __name__ == '__main__':
@@ -252,13 +263,16 @@ if __name__ == '__main__':
         logger.error(e)
         sys.exit(1)
 
-    prev_cdps = fetch_cdps()
+    log_dir = '/srv/cdp-log'
+    logger.info(f'Logging JSON responses to {log_dir}')
+
+    prev_cdps = fetch_cdps(log_dir)
     logger.info(f'Fetched {len(prev_cdps)} initial CDPs')
 
     while True:
         try:
             time.sleep(30)
-            cdps = fetch_cdps()
+            cdps = fetch_cdps(log_dir)
             events = generate_cdp_events(prev_cdps, cdps)
 
             if len(events) > 0:
