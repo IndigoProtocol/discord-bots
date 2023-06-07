@@ -206,83 +206,124 @@ def validate_cdps_json(json_response) -> bool:
 def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpEvent]:
     cdp_events = []
 
-    old_dict = {(d['owner'], d['asset']): d for d in old_list}
-    new_dict = {(d['owner'], d['asset']): d for d in new_list}
+    # Separate the CDPs with owners and without owners
+    old_with_owner = [d for d in old_list if d['owner'] is not None]
+    old_without_owner = [d for d in old_list if d['owner'] is None]
+    new_with_owner = [d for d in new_list if d['owner'] is not None]
+    new_without_owner = [d for d in new_list if d['owner'] is None]
+
+    # Create dictionaries for CDPs with owners
+    old_dict_with_owner = {(d['owner'], d['asset']): d for d in old_with_owner}
+    new_dict_with_owner = {(d['owner'], d['asset']): d for d in new_with_owner}
+
+    # Create dictionaries for CDPs without owners, linking them based on collateralAmount, mintedAmount, and asset
+    old_dict_without_owner = {
+        (d['collateralAmount'], d['mintedAmount'], d['asset']): d
+        for d in old_without_owner
+    }
+    new_dict_without_owner = {
+        (d['collateralAmount'], d['mintedAmount'], d['asset']): d
+        for d in new_without_owner
+    }
 
     tvl = sum([x['collateralAmount'] / 1e6 for x in new_list])
 
-    for new_key, new_cdp in new_dict.items():
-        if new_key not in old_dict:
+    # Process CDPs with owners
+    for new_key, new_cdp in new_dict_with_owner.items():
+        if new_key not in old_dict_with_owner:
             # OPEN event
-            cdp_events.append(
-                CdpEvent(
-                    type=CdpEventType.OPEN,
-                    ada=new_cdp['collateralAmount'] / 1e6,
-                    new_collateral=new_cdp['collateralAmount'] / 1e6,
-                    tvl=tvl,
-                    iasset_name=new_cdp['asset'],
-                    debt=new_cdp['mintedAmount'] / 1e6,
-                    owner=new_cdp['owner'],
-                    tx_id=new_cdp['output_hash'],
-                )
-            )
+            cdp_events.append(create_cdp_event(CdpEventType.OPEN, new_cdp, tvl))
         else:
-            old_cdp = old_dict[new_key]
+            old_cdp = old_dict_with_owner[new_key]
+            create_deposit_withdraw_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events)
 
-            # DEPOSIT, WITHDRAW or FREEZE event
-            if new_cdp['collateralAmount'] != old_cdp['collateralAmount']:
-                event_type = (
-                    CdpEventType.DEPOSIT
-                    if new_cdp['collateralAmount'] > old_cdp['collateralAmount']
-                    else CdpEventType.WITHDRAW
-                )
-                cdp_events.append(
-                    CdpEvent(
-                        type=event_type,
-                        ada=abs(
-                            new_cdp['collateralAmount'] - old_cdp['collateralAmount']
-                        )
-                        / 1e6,
-                        tvl=tvl,
-                        new_collateral=new_cdp['collateralAmount'] / 1e6,
-                        iasset_name=new_cdp['asset'],
-                        debt=new_cdp['mintedAmount'] / 1e6,
-                        owner=new_cdp['owner'],
-                        tx_id=new_cdp['output_hash'],
-                    )
-                )
-            elif new_cdp['owner'] is None and old_cdp['owner'] is not None:
-                # FREEZE event
-                cdp_events.append(
-                    CdpEvent(
-                        type=CdpEventType.FREEZE,
-                        ada=old_cdp['collateralAmount'] / 1e6,
-                        new_collateral=new_cdp['collateralAmount'] / 1e6,
-                        tvl=tvl,
-                        iasset_name=old_cdp['asset'],
-                        debt=new_cdp['mintedAmount'] / 1e6,
-                        owner=old_cdp['owner'],
-                        tx_id=new_cdp['output_hash'],
-                    )
-                )
-
-    for old_key, old_cdp in old_dict.items():
-        if old_key not in new_dict:
+    for old_key, old_cdp in old_dict_with_owner.items():
+        if old_key not in new_dict_with_owner:
             # CLOSE event
             cdp_events.append(
-                CdpEvent(
-                    type=CdpEventType.CLOSE,
-                    ada=old_cdp['collateralAmount'] / 1e6,
-                    new_collateral=None,
-                    tvl=tvl,
-                    iasset_name=old_cdp['asset'],
-                    debt=old_cdp['mintedAmount'] / 1e6,
-                    owner=old_cdp['owner'],
-                    tx_id=None,
+                create_cdp_event(
+                    CdpEventType.CLOSE, old_cdp, tvl, new_collateral=None, tx_id=None
                 )
             )
 
+    # Process CDPs without owners
+    for new_key, new_cdp in new_dict_without_owner.items():
+        if new_key not in old_dict_without_owner:
+            old_cdp = find_corresponding_cdp_with_owner(old_with_owner, new_cdp)
+            if old_cdp is not None:
+                # FREEZE event
+                cdp_events.append(
+                    create_cdp_event(
+                        CdpEventType.FREEZE,
+                        old_cdp,
+                        tvl,
+                        new_collateral=new_cdp['collateralAmount'],
+                    )
+                )
+
     return cdp_events
+
+
+def create_cdp_event(event_type, cdp, tvl, new_collateral=None, tx_id=None):
+    return CdpEvent(
+        type=event_type,
+        ada=cdp['collateralAmount'] / 1e6,
+        new_collateral=new_collateral
+        if new_collateral is not None
+        else cdp['collateralAmount'] / 1e6,
+        tvl=tvl,
+        iasset_name=cdp['asset'],
+        debt=cdp['mintedAmount'] / 1e6,
+        owner=cdp['owner'],
+        tx_id=tx_id if tx_id is not None else cdp['output_hash'],
+    )
+
+
+def create_deposit_withdraw_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
+    if new_cdp['collateralAmount'] != old_cdp['collateralAmount']:
+        event_type = (
+            CdpEventType.DEPOSIT
+            if new_cdp['collateralAmount'] > old_cdp['collateralAmount']
+            else CdpEventType.WITHDRAW
+        )
+        cdp_events.append(
+            CdpEvent(
+                type=event_type,
+                ada=abs(new_cdp['collateralAmount'] - old_cdp['collateralAmount'])
+                / 1e6,
+                tvl=tvl,
+                new_collateral=new_cdp['collateralAmount'] / 1e6,
+                iasset_name=new_cdp['asset'],
+                debt=new_cdp['mintedAmount'] / 1e6,
+                owner=new_cdp['owner'],
+                tx_id=new_cdp['output_hash'],
+            )
+        )
+    elif new_cdp['owner'] is None and old_cdp['owner'] is not None:
+        # FREEZE event
+        cdp_events.append(
+            CdpEvent(
+                type=CdpEventType.FREEZE,
+                ada=old_cdp['collateralAmount'] / 1e6,
+                new_collateral=new_cdp['collateralAmount'] / 1e6,
+                tvl=tvl,
+                iasset_name=old_cdp['asset'],
+                debt=old_cdp['mintedAmount'] / 1e6,
+                owner=old_cdp['owner'],
+                tx_id=old_cdp['output_hash'],
+            )
+        )
+
+
+def find_corresponding_cdp_with_owner(cdp_list, cdp_without_owner):
+    for cdp in cdp_list:
+        if (
+            cdp['collateralAmount'] == cdp_without_owner['collateralAmount']
+            and cdp['mintedAmount'] == cdp_without_owner['mintedAmount']
+            and cdp['asset'] == cdp_without_owner['asset']
+        ):
+            return cdp
+    return None
 
 
 def setup_logging() -> logging.Logger:
