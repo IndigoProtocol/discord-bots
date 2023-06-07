@@ -22,6 +22,7 @@ class CdpEventType(Enum):
     CLOSE = auto()
     DEPOSIT = auto()
     WITHDRAW = auto()
+    FREEZE = auto()
 
 
 @dataclass
@@ -98,28 +99,31 @@ def event_to_discord_comment(event: CdpEvent) -> str:
         lines.append(f'**Deposit into {iasset_emoji} CDP**')
     elif event.type == CdpEventType.WITHDRAW:
         lines.append(f'**Withdrawal from {iasset_emoji} CDP**')
+    elif event.type == CdpEventType.FREEZE:
+        lines.append(f'**{iasset_emoji} CDP frozen** ❄️')
 
     sign = '+' if event.type in (CdpEventType.OPEN, CdpEventType.DEPOSIT) else '-'
     lines.append(f'- {sign}{event.ada:,.0f} ADA {get_fish_scale_emoji(event.ada)}')
 
-    if event.new_collateral is not None and event.type in (
-        CdpEventType.DEPOSIT,
-        CdpEventType.WITHDRAW,
-    ):
-        if event.type == CdpEventType.DEPOSIT:
-            pct_change = (event.ada / event.new_collateral) * 100
-        else:
-            pct_change = -1 * event.ada / (event.ada + event.new_collateral) * 100
-        pct_prec = 0 if 1 <= abs(pct_change) <= 99 else 1
-        collateral = f'{event.new_collateral:,.0f}'
-        lines.append(f'- New total: {collateral} ADA')
-        lines.append(f'- Change: {pct_change:+.{pct_prec}f}%')
+    if event.type != CdpEventType.FREEZE:
+        if event.new_collateral is not None and event.type in (
+            CdpEventType.DEPOSIT,
+            CdpEventType.WITHDRAW,
+        ):
+            if event.type == CdpEventType.DEPOSIT:
+                pct_change = (event.ada / event.new_collateral) * 100
+            else:
+                pct_change = -1 * event.ada / (event.ada + event.new_collateral) * 100
+            pct_prec = 0 if 1 <= abs(pct_change) <= 99 else 1
+            collateral = f'{event.new_collateral:,.0f}'
+            lines.append(f'- New total: {collateral} ADA')
+            lines.append(f'- Change: {pct_change:+.{pct_prec}f}%')
 
-    if event.type in (CdpEventType.WITHDRAW, CdpEventType.CLOSE):
-        tax = event.ada * 0.02
-        lines.append(f'- 2% to INDY stakers: {tax:,.0f} ADA')
+        if event.type in (CdpEventType.WITHDRAW, CdpEventType.CLOSE):
+            tax = event.ada * 0.02
+            lines.append(f'- 2% to INDY stakers: {tax:,.0f} ADA')
 
-    lines.append(f'- New TVL: {event.tvl:,.0f} ADA')
+        lines.append(f'- New TVL: {event.tvl:,.0f} ADA')
     lines.append(f'- Owner PKH: `{event.owner}`')
 
     if event.type != CdpEventType.CLOSE:
@@ -201,7 +205,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
         else:
             old_cdp = old_dict[new_key]
 
-            # DEPOSIT or WITHDRAW event
+            # DEPOSIT, WITHDRAW or FREEZE event
             if new_cdp['collateralAmount'] != old_cdp['collateralAmount']:
                 event_type = (
                     CdpEventType.DEPOSIT
@@ -219,6 +223,19 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
                         new_collateral=new_cdp['collateralAmount'] / 1e6,
                         iasset_name=new_cdp['asset'],
                         owner=new_cdp['owner'],
+                        tx_id=new_cdp['output_hash'],
+                    )
+                )
+            elif new_cdp['owner'] is None and old_cdp['owner'] is not None:
+                # FREEZE event
+                cdp_events.append(
+                    CdpEvent(
+                        type=CdpEventType.FREEZE,
+                        ada=old_cdp['collateralAmount'] / 1e6,
+                        new_collateral=new_cdp['collateralAmount'] / 1e6,
+                        tvl=tvl,
+                        iasset_name=old_cdp['asset'],
+                        owner=old_cdp['owner'],
                         tx_id=new_cdp['output_hash'],
                     )
                 )
