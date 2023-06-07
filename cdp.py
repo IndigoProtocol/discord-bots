@@ -159,25 +159,29 @@ def fetch_cdps(log_dir: str, at_unix_time: float | None = None):
     else:
         dt = datetime.datetime.now()
 
-    filename = dt.strftime('%Y-%m-%d-%H-%M-%S-') + str(int(dt.timestamp())) + '.json.gz'
-    with gzip.open(os.path.join(log_dir, filename), 'wt') as log_file:
-        json.dump(json_response, log_file, indent=4)
-
-    validate_cdps_json(json_response, filename)
-
-    return json_response
-
-
-def validate_cdps_json(json_response, log_file: str) -> None:
-    with open('cdps-schema.json') as f:
-        schema = json.load(f)
-    try:
-        jsonschema.validate(json_response, schema)
-    except jsonschema.exceptions.ValidationError as e:
+    if not validate_cdps_json(json_response):
+        log_file = (
+            dt.strftime('%Y-%m-%d-%H-%M-%S-') + str(int(dt.timestamp())) + '.json.gz'
+        )
         logger.error('/cdps response not valid against schema')
         logger.error(e)
         logger.error(f'Log of invalid JSON: {log_file}')
         print(e)
+
+        with gzip.open(os.path.join(log_dir, log_file), 'wt') as log_file:
+            json.dump(json_response, log_file, indent=4)
+
+    return json_response
+
+
+def validate_cdps_json(json_response) -> bool:
+    with open('cdps-schema.json') as f:
+        schema = json.load(f)
+    try:
+        jsonschema.validate(json_response, schema)
+        return True
+    except jsonschema.exceptions.ValidationError as e:
+        return False
 
 
 def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpEvent]:
