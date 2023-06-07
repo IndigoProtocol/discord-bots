@@ -32,6 +32,7 @@ class CdpEvent:
     new_collateral: float | None
     tvl: float
     iasset_name: str
+    debt: float
     owner: str
     tx_id: str | None  # Closed account's final tx_id can't be discerned from API.
 
@@ -124,6 +125,9 @@ def event_to_discord_comment(event: CdpEvent) -> str:
             lines.append(f'- 2% to INDY stakers: {tax:,.0f} ADA')
 
         lines.append(f'- New TVL: {event.tvl:,.0f} ADA')
+    else:
+        lines.append(f'- Debt: {event.debt} {event.iasset_name}')
+
     lines.append(f'- Owner PKH: `{event.owner}`')
 
     if event.type != CdpEventType.CLOSE:
@@ -202,6 +206,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
                     new_collateral=new_cdp['collateralAmount'] / 1e6,
                     tvl=tvl,
                     iasset_name=new_cdp['asset'],
+                    debt=new_cdp['mintedAmount'] / 1e6,
                     owner=new_cdp['owner'],
                     tx_id=new_cdp['output_hash'],
                 )
@@ -226,6 +231,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
                         tvl=tvl,
                         new_collateral=new_cdp['collateralAmount'] / 1e6,
                         iasset_name=new_cdp['asset'],
+                        debt=new_cdp['mintedAmount'] / 1e6,
                         owner=new_cdp['owner'],
                         tx_id=new_cdp['output_hash'],
                     )
@@ -239,6 +245,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
                         new_collateral=new_cdp['collateralAmount'] / 1e6,
                         tvl=tvl,
                         iasset_name=old_cdp['asset'],
+                        debt=new_cdp['mintedAmount'] / 1e6,
                         owner=old_cdp['owner'],
                         tx_id=new_cdp['output_hash'],
                     )
@@ -254,6 +261,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
                     new_collateral=None,
                     tvl=tvl,
                     iasset_name=old_cdp['asset'],
+                    debt=old_cdp['mintedAmount'] / 1e6,
                     owner=old_cdp['owner'],
                     tx_id=None,
                 )
