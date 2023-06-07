@@ -100,7 +100,7 @@ def event_to_discord_comment(event: CdpEvent) -> str:
         lines.append(f'**Withdrawal from {iasset_emoji} CDP**')
 
     sign = '+' if event.type in (CdpEventType.OPEN, CdpEventType.DEPOSIT) else '-'
-    lines.append(f'• {sign}{event.ada:,.0f} ADA {get_fish_scale_emoji(event.ada)}')
+    lines.append(f'- {sign}{event.ada:,.0f} ADA {get_fish_scale_emoji(event.ada)}')
 
     if event.new_collateral is not None and event.type in (
         CdpEventType.DEPOSIT,
@@ -112,15 +112,15 @@ def event_to_discord_comment(event: CdpEvent) -> str:
             pct_change = -1 * event.ada / (event.ada + event.new_collateral) * 100
         pct_prec = 0 if 1 <= abs(pct_change) <= 99 else 1
         collateral = f'{event.new_collateral:,.0f}'
-        lines.append(f'• New total: {collateral} ADA')
-        lines.append(f'• Change: {pct_change:+.{pct_prec}f}%')
+        lines.append(f'- New total: {collateral} ADA')
+        lines.append(f'- Change: {pct_change:+.{pct_prec}f}%')
 
     if event.type in (CdpEventType.WITHDRAW, CdpEventType.CLOSE):
         tax = event.ada * 0.02
-        lines.append(f'• 2% to INDY stakers: {tax:,.0f} ADA')
+        lines.append(f'- 2% to INDY stakers: {tax:,.0f} ADA')
 
-    lines.append(f'• New TVL: {event.tvl:,.0f} ADA')
-    lines.append(f'• Owner PKH: `{event.owner}`')
+    lines.append(f'- New TVL: {event.tvl:,.0f} ADA')
+    lines.append(f'- Owner PKH: `{event.owner}`')
 
     if event.type != CdpEventType.CLOSE:
         lines.append(
