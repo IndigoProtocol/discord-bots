@@ -23,6 +23,7 @@ class CdpEventType(Enum):
     DEPOSIT = auto()
     WITHDRAW = auto()
     FREEZE = auto()
+    MERGE = auto()
 
 
 @dataclass
@@ -33,7 +34,7 @@ class CdpEvent:
     tvl: float
     iasset_name: str
     debt: float
-    owner: str
+    owner: str | None  # Merge events don't have an owner.
     tx_id: str | None  # Closed account's final tx_id can't be discerned from API.
 
 
@@ -110,6 +111,8 @@ def event_to_discord_comment(event: CdpEvent) -> str:
         lines.append(f'**Withdrawal from {iasset_emoji} CDP**')
     elif event.type == CdpEventType.FREEZE:
         lines.append(f'**{iasset_emoji} CDP frozen** ❄️')
+    elif event.type == CdpEventType.MERGE:
+        lines.append(f'**Frozen {iasset_emoji} CDPs merged** ↔️')
 
     sign = '+' if event.type in (CdpEventType.OPEN, CdpEventType.DEPOSIT) else '-'
     lines.append(f'- {sign}{event.ada:,.0f} ADA {get_fish_scale_emoji(event.ada)}')
@@ -121,9 +124,10 @@ def event_to_discord_comment(event: CdpEvent) -> str:
     else:
         debt_str = f'{event.debt}'
 
-    lines.append(f'- Debt: {debt_str} {event.iasset_name}')
+    if event.type != CdpEventType.MERGE:
+        lines.append(f'- Debt: {debt_str} {event.iasset_name}')
 
-    if event.type != CdpEventType.FREEZE:
+    if event.type not in (CdpEventType.FREEZE, CdpEventType.MERGE):
         if event.new_collateral is not None and event.type in (
             CdpEventType.DEPOSIT,
             CdpEventType.WITHDRAW,
@@ -143,7 +147,8 @@ def event_to_discord_comment(event: CdpEvent) -> str:
 
         lines.append(f'- New TVL: {event.tvl:,.0f} ADA')
 
-    lines.append(f'- Owner PKH: `{event.owner}`')
+    if event.type != CdpEventType.MERGE:
+        lines.append(f'- Owner PKH: `{event.owner}`')
 
     if event.type != CdpEventType.CLOSE:
         lines.append(
@@ -307,6 +312,21 @@ def create_deposit_withdraw_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
             )
         )
     elif new_cdp['owner'] is None and old_cdp['owner'] is not None:
+        # MERGE event
+        if old_cdp['owner'] == '':
+            cdp_events.append(
+                CdpEvent(
+                    type=CdpEventType.MERGE,
+                    ada=old_cdp['collateralAmount'] / 1e6,
+                    new_collateral=new_cdp['collateralAmount'] / 1e6,
+                    tvl=tvl,
+                    iasset_name=old_cdp['asset'],
+                    debt=old_cdp['mintedAmount'] / 1e6,
+                    owner=None,
+                    tx_id=old_cdp['output_hash'],
+                )
+            )
+
         # FREEZE event
         cdp_events.append(
             CdpEvent(

@@ -13,8 +13,8 @@
       },
       "owner": {
         "type": ["string", "null"],
-        "pattern": "^[a-f0-9]{56}$"
-      },
+        "pattern": "^([a-f0-9]{56}|)$"
+      },      
       "asset": {
           "type": "string",
           "minLength": 4,
