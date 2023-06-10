@@ -154,7 +154,7 @@ def liquidation_to_post_data(lq: dict) -> dict:
         'content': msg,
     }
 
-    if collateral_ada >= 10_000:
+    if collateral_ada >= 100_000:
         post_data['embeds'] = [
             {
                 'image': {
