@@ -237,14 +237,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
             old_cdp = old_dict_with_owner[new_key]
             create_deposit_withdraw_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events)
 
-    for old_key, old_cdp in old_dict_with_owner.items():
-        if old_key not in new_dict_with_owner:
-            # CLOSE event
-            cdp_events.append(
-                create_cdp_event(
-                    CdpEventType.CLOSE, old_cdp, tvl, new_collateral=None, tx_id=None
-                )
-            )
+    frozen: dict[tuple[str, str], bool] = {}
 
     # Process CDPs without owners
     for new_key, new_cdp in new_dict_without_owner.items():
@@ -252,6 +245,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
             old_cdp = find_corresponding_cdp_with_owner(old_with_owner, new_cdp)
             if old_cdp is not None:
                 # FREEZE event
+                frozen[(old_cdp['owner'], old_cdp['asset'])] = True
                 cdp_events.append(
                     create_cdp_event(
                         CdpEventType.FREEZE,
@@ -260,6 +254,17 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
                         new_collateral=new_cdp['collateralAmount'],
                     )
                 )
+
+    for old_key, old_cdp in old_dict_with_owner.items():
+        if old_key in frozen:
+            continue
+        if old_key not in new_dict_with_owner:
+            # CLOSE event
+            cdp_events.append(
+                create_cdp_event(
+                    CdpEventType.CLOSE, old_cdp, tvl, new_collateral=None, tx_id=None
+                )
+            )
 
     return cdp_events
 
