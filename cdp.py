@@ -252,6 +252,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
                         old_cdp,
                         tvl,
                         new_collateral=new_cdp['collateralAmount'],
+                        tx_id=new_cdp['output_hash'],
                     )
                 )
 
