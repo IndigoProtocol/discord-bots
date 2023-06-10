@@ -236,7 +236,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
 
     # Process CDPs with owners
     for new_key, new_cdp in new_dict_with_owner.items():
-        if new_key not in old_dict_with_owner:
+        if new_key not in old_dict_with_owner and new_cdp['owner'] != 'NULL':
             # OPEN event
             cdp_events.append(create_cdp_event(CdpEventType.OPEN, new_cdp, tvl))
         else:
@@ -313,7 +313,7 @@ def create_deposit_withdraw_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
         )
     elif new_cdp['owner'] is None and old_cdp['owner'] is not None:
         # MERGE event
-        if old_cdp['owner'] == '':
+        if old_cdp['owner'] == '' or old_cdp['owner'] == 'NULL':
             cdp_events.append(
                 CdpEvent(
                     type=CdpEventType.MERGE,

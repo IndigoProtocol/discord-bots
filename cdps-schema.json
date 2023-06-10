@@ -12,8 +12,19 @@
         "minimum": 0
       },
       "owner": {
-        "type": ["string", "null"],
-        "pattern": "^([a-f0-9]{56}|)$"
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^([a-f0-9]{56}|)$"
+          },
+          {
+            "type": "string",
+            "enum": ["NULL"]
+          },
+          {
+            "type": "null"
+          }
+        ]
       },      
       "asset": {
           "type": "string",
