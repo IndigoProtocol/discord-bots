@@ -147,7 +147,8 @@ def liquidation_to_post_data(lq: dict) -> dict:
         f'({1 / oracle_price:,.{price_main_prec}f} {iasset}/ADA)\n'
         f'[cexplorer.io](<https://cexplorer.io/tx/{lq["output_hash"]}>)  ✧  '
         f'[adastat.net](<https://adastat.net/transactions/{lq["output_hash"]}>)  ✧  '
-        f'[cardanoscan.io](<https://cardanoscan.io/transaction/{lq["output_hash"]}>)\n'
+        f'[cardanoscan.io](<https://cardanoscan.io/transaction/{lq["output_hash"]}>)  ✧  '
+        f'[explorer.cardano.org](https://explorer.cardano.org/en/transaction?id={lq["output_hash"]})'
     )
 
     post_data: dict[str, Any] = {
