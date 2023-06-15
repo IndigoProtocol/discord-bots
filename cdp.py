@@ -1,9 +1,11 @@
 import datetime
 import gzip
+import http.client
 import json
 import logging
 import math
 import os
+import socket
 import sys
 import time
 import urllib.error
@@ -423,5 +425,13 @@ if __name__ == '__main__':
                     discord_comment(msg)
                     time.sleep(2)
 
-        except urllib.error.URLError as err:
-            logger.warning(err)
+        except http.client.RemoteDisconnected:
+            logger.warning('Remote end closed connection without response')
+        except urllib.error.HTTPError as e:
+            logger.warning(f'HTTP Error occurred with status code: {e.code}')
+        except urllib.error.URLError:
+            logger.warning('URL Error occurred')
+        except http.client.HTTPException:
+            logger.warning('HTTP Exception occurred')
+        except socket.timeout:
+            logger.warning('Socket Timeout occurred')
