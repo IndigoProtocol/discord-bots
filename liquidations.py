@@ -33,7 +33,7 @@ def discord_comment(post_data: dict):
         },
     )
 
-    urllib.request.urlopen(req)
+    urllib.request.urlopen(req, timeout=15)
 
 
 def fetch_liquidations(after_unix_time: int | None = None):
@@ -43,7 +43,7 @@ def fetch_liquidations(after_unix_time: int | None = None):
         query_string = urllib.parse.urlencode(params)
         url = url + f'?{query_string}'
     req = urllib.request.Request(url)
-    f = urllib.request.urlopen(req)
+    f = urllib.request.urlopen(req, timeout=15)
     response = f.read().decode('utf-8')
     json_response = json.loads(response)
     return json_response

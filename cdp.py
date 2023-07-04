@@ -57,7 +57,7 @@ def discord_comment(msg: str):
         },
     )
 
-    urllib.request.urlopen(req)
+    urllib.request.urlopen(req, timeout=15)
 
 
 def get_iasset_emoji(iasset_name: str) -> str:
@@ -176,7 +176,7 @@ def fetch_cdps(log_dir: str, at_unix_time: float | None = None):
     else:
         req = urllib.request.Request(url)
 
-    f = urllib.request.urlopen(req)
+    f = urllib.request.urlopen(req, timeout=15)
     response = f.read().decode('utf-8')
     json_response = json.loads(response)
 
