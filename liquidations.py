@@ -128,7 +128,10 @@ def liquidation_to_post_data(lq: dict) -> dict:
         price_main_prec = 8
         price_inverse_prec = 0
         mcr = 1.1
-        iasset_burned_str = f'{iasset_burned}'
+        if iasset_burned < 0.1:
+            iasset_burned_str = round_to_str(iasset_burned, 6)
+        else:
+            iasset_burned_str = f'{iasset_burned}'
     else:
         raise AnalyticsApiException(f'Unexpected iasset "{iasset}"')
 
