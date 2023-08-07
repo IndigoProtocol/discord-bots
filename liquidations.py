@@ -1,7 +1,9 @@
+import http
 import json
 import logging
 import math
 import os
+import socket
 import sys
 import time
 import urllib.error
@@ -260,10 +262,18 @@ if __name__ == '__main__':
                 logger.info(f'New liquidation, new last id: {last_lq["id"]}')
             else:
                 logger.info(f'No new liquidations, last: {last_lq["id"]}')
-        except urllib.error.URLError as err:
-            logger.warning(err)
-        except AnalyticsApiException as err:
-            logger.error(err)
+        except http.client.RemoteDisconnected:
+            logger.warning('Remote end closed connection without response')
+        except urllib.error.HTTPError as e:
+            logger.warning(f'HTTP error occurred with status code: {e.code}')
+        except urllib.error.URLError as e:
+            logger.warning(f'URL error occurred: {e}')
+        except http.client.HTTPException:
+            logger.warning('HTTP exception occurred')
+        except socket.timeout:
+            logger.warning('Socket Timeout occurred')
+        except AnalyticsApiException as e:
+            logger.error(e)
             sys.exit(1)
         finally:
             time.sleep(119)
