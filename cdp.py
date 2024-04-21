@@ -62,9 +62,9 @@ def discord_comment(msg: str):
 
 def get_iasset_emoji(iasset_name: str) -> str:
     discord_emojis = {
-        'iUSD': '<:iUSDemoji:1058094170264309892>',
-        'iBTC': '<:iBTCemoji:1058094192502509589>',
-        'iETH': '<:iETHemoji:1058094251164057610>',
+        'iUSD': '<:iUSDemoji:1230941267622367393>',
+        'iBTC': '<:iBTCemoji:1230941348744401047>',
+        'iETH': '<:iETHemoji:1230941175607722136>',
     }
 
     if iasset_name in discord_emojis:
@@ -143,9 +143,9 @@ def event_to_discord_comment(event: CdpEvent) -> str:
             lines.append(f'- New collateral: {collateral} ADA')
             lines.append(f'- Change: {pct_change:+.{pct_prec}f}%')
 
-        if event.type in (CdpEventType.WITHDRAW, CdpEventType.CLOSE):
-            tax = event.ada * 0.02
-            lines.append(f'- 2% to INDY stakers: {tax:,.0f} ADA')
+        # if event.type in (CdpEventType.WITHDRAW, CdpEventType.CLOSE):
+        #     tax = event.ada * 0.02
+        #     lines.append(f'- 2% to INDY stakers: {tax:,.0f} ADA')
 
         lines.append(f'- New TVL: {event.tvl:,.0f} ADA')
 
