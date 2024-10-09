@@ -28,9 +28,10 @@ else:
 @dataclass
 class RedemptionEvent:
     ada_redeemed: float
+    interest: float
     asset_redeemed: float
     asset_name: str
-    redeemer: str
+    processing_fee: float
     tx_id: str
 
 
@@ -68,10 +69,11 @@ def redemption_to_discord_comment(event: RedemptionEvent) -> str:
 
     asset_emoji = get_iasset_emoji(event.asset_name)
 
-    lines.append(f'{asset_emoji} **Redemption**')
+    lines.append(f'{asset_emoji} {event.asset_name} Redemption')
     lines.append(f'- Redeemed: {event.asset_redeemed:,.2f} {event.asset_name}')
     lines.append(f'- ADA Redeemed: {event.ada_redeemed:,.2f} ADA {get_fish_scale_emoji(event.ada_redeemed)}')
-    lines.append(f'- Redeemer: `{event.redeemer}`')
+    lines.append(f'- Interest Paid: {event.interest / 1e6:,.2f} ADA')
+    lines.append(f'- Processing Fee: {event.processing_fee / 1e6:,.2f} ADA (to INDY Stakers)')
 
     lines.append(
         f'[cexplorer.io](<https://cexplorer.io/tx/{event.tx_id}>)  ✧  '
@@ -85,20 +87,22 @@ def redemption_to_discord_comment(event: RedemptionEvent) -> str:
     return '\n'.join(lines)
 
 
-def generate_redemption_events(old_list: list[dict], new_list: list[dict]) -> list[RedemptionEvent]:
+def generate_redemption_events(old_list: list[str], new_list: list[dict]) -> list[RedemptionEvent]:
     redemption_events = []
 
     for new_redemption in new_list:
-        if new_redemption not in old_list:
+        if new_redemption['tx_hash'] not in old_list:  # Check against old_list which contains tx_hashes
             redemption_events.append(
                 RedemptionEvent(
                     ada_redeemed=new_redemption['lovelaces_returned'] / 1e6,
+                    interest=new_redemption['interest'],
                     asset_redeemed=new_redemption['redeemed_amount'] / 1e6,
                     asset_name=new_redemption['asset'],
-                    redeemer=new_redemption['cdp_owner'],
+                    processing_fee=new_redemption['processing_fee_lovelaces'] / 1e6,
                     tx_id=new_redemption['tx_hash'],
                 )
             )
+            old_list.append(new_redemption['tx_hash'])
     return redemption_events
 
 
@@ -137,10 +141,11 @@ def redemption_to_post_data(event: RedemptionEvent) -> dict:
     iasset_emoji = get_iasset_emoji(event.asset_name)
 
     msg = (
-        f'{iasset_emoji} **Redemption**\n'
+        f'{iasset_emoji} **{event.asset_name} Redemption**\n'
         f'- Redeemed: {event.asset_redeemed:,.6f} {event.asset_name}\n'
         f'- ADA Redeemed: {round_to_str(event.ada_redeemed, 2)} ADA {get_fish_scale_emoji(event.ada_redeemed)}\n'
-        f'- Redeemer: `{event.redeemer}`\n'
+        f'- Interest Paid: {round_to_str(event.interest / 1e6, 2)} ADA\n'
+        f'- Processing fee: {round_to_str(event.processing_fee / 1e6, 2)} ADA (to INDY Stakers)\n\n'
         f'[cexplorer.io](<https://cexplorer.io/tx/{event.tx_id}>) ✧ '
         f'[adastat.net](<https://adastat.net/transactions/{event.tx_id}>) ✧ '
         f'[cardanoscan.io](<https://cardanoscan.io/transaction/{event.tx_id}>) ✧ '
@@ -159,7 +164,7 @@ if __name__ == '__main__':
         logger.error(e)
         sys.exit(1)
 
-    prev_redemptions = fetch_redemptions()
+    prev_redemptions = [r['tx_hash'] for r in fetch_redemptions()]
     logger.info(f'Fetched {len(prev_redemptions)} initial redemptions')
 
     while True:
@@ -170,14 +175,15 @@ if __name__ == '__main__':
 
             if len(events) > 0:
                 logger.info(f'Fetched {len(events)} new redemption events')
+                prev_redemptions += [new_event for new_event in redemptions if
+                                     new_event not in prev_redemptions]
             else:
                 logger.debug(f'No new redemption events')
 
-            prev_redemptions = redemptions
             MIN_ADA_REDEEMED = 100
             for event in events:
                 if event.ada_redeemed >= MIN_ADA_REDEEMED:
-                    logger.info(f'Discord commenting for redemption event with {event.ada_redeemed} ADA')
+                    logger.info(f'Discord commenting for redemption event with {event.ada_redeemed} ADA for {event.asset_name}')
                     post_data = redemption_to_post_data(event)
                     discord_comment(post_data)
                     time.sleep(2)
