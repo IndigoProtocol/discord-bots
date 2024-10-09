@@ -174,12 +174,15 @@ if __name__ == '__main__':
                 logger.debug(f'No new redemption events')
 
             prev_redemptions = redemptions
-
+            MIN_ADA_REDEEMED = 100
             for event in events:
-                logger.info(f'Discord commenting for redemption event')
-                post_data = redemption_to_post_data(event)
-                discord_comment(post_data)
-                time.sleep(2)
+                if event.ada_redeemed >= MIN_ADA_REDEEMED:
+                    logger.info(f'Discord commenting for redemption event with {event.ada_redeemed} ADA')
+                    post_data = redemption_to_post_data(event)
+                    discord_comment(post_data)
+                    time.sleep(2)
+                else:
+                    logger.info(f'Redemption event with {event.ada_redeemed} ADA is below the threshold, not posting')
 
         except http.client.RemoteDisconnected:
             logger.warning('Remote end closed connection without response')
