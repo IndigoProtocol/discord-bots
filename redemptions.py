@@ -12,12 +12,17 @@ import urllib.parse
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
-
 from cdp import get_iasset_emoji, get_fish_scale_emoji
 
 load_dotenv()
+
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 context = ssl._create_unverified_context()
+
+if not WEBHOOK_URL:
+    print("WEBHOOK_URL not set or couldn't be found")
+else:
+    print(f"Using WEBHOOK_URL: {WEBHOOK_URL}")
 
 
 @dataclass
@@ -33,26 +38,25 @@ def discord_comment(post_data: dict):
     if not WEBHOOK_URL:
         raise Exception('WEBHOOK_URL not set')
 
+    # Ensure unverified SSL context is used in Discord webhook POST request
     req = urllib.request.Request(
         WEBHOOK_URL,
         method='POST',
         data=json.dumps(post_data).encode('utf-8'),
         headers={
             'Content-Type': 'application/json',
-            # Discord only allows certain user-agents, others it'll block with 403
-            # without explanation.
-            # https://github.com/discord/discord-api-docs/issues/4908
             'User-Agent': 'DiscordBot (private use) Python-urllib/3.11',
         },
     )
 
-    urllib.request.urlopen(req, timeout=15)
+    urllib.request.urlopen(req, timeout=15, context=context)
 
 
 def fetch_redemptions():
     url = 'https://analytics.indigoprotocol.io/api/redemptions'
     req = urllib.request.Request(url)
 
+    # Use the unverified SSL context in the API request
     f = urllib.request.urlopen(req, timeout=15, context=context)
     response = f.read().decode('utf-8')
     json_response = json.loads(response)
@@ -88,14 +92,13 @@ def generate_redemption_events(old_list: list[dict], new_list: list[dict]) -> li
         if new_redemption not in old_list:
             redemption_events.append(
                 RedemptionEvent(
-                    ada_redeemed=new_redemption['ada_redeemed'] / 1e6,
-                    asset_redeemed=new_redemption['asset_redeemed'] / 1e6,
-                    asset_name=new_redemption['asset_name'],
-                    redeemer=new_redemption['redeemer'],
-                    tx_id=new_redemption['tx_id'],
+                    ada_redeemed=new_redemption['lovelaces_returned'] / 1e6,
+                    asset_redeemed=new_redemption['redeemed_amount'] / 1e6,
+                    asset_name=new_redemption['asset'],
+                    redeemer=new_redemption['cdp_owner'],
+                    tx_id=new_redemption['tx_hash'],
                 )
             )
-
     return redemption_events
 
 
@@ -120,6 +123,31 @@ def webhook_sanity_check():
         raise Exception("WEBHOOK_URL isn't https://discord.com/api/webhooks/…")
     elif len(WEBHOOK_URL) != 121:
         raise Exception('WEBHOOK_URL length not 121')
+
+
+def round_to_str(num: float, precision: int) -> str:
+    rounded = f'{num:,.{precision}f}'
+    if precision == 0:
+        return rounded
+    else:
+        return str(rounded).rstrip('0').rstrip('.')
+
+
+def redemption_to_post_data(event: RedemptionEvent) -> dict:
+    iasset_emoji = get_iasset_emoji(event.asset_name)
+
+    msg = (
+        f'{iasset_emoji} **Redemption**\n'
+        f'- Redeemed: {event.asset_redeemed:,.6f} {event.asset_name}\n'
+        f'- ADA Redeemed: {round_to_str(event.ada_redeemed, 2)} ADA {get_fish_scale_emoji(event.ada_redeemed)}\n'
+        f'- Redeemer: `{event.redeemer}`\n'
+        f'[cexplorer.io](<https://cexplorer.io/tx/{event.tx_id}>) ✧ '
+        f'[adastat.net](<https://adastat.net/transactions/{event.tx_id}>) ✧ '
+        f'[cardanoscan.io](<https://cardanoscan.io/transaction/{event.tx_id}>) ✧ '
+        f'[explorer.cardano.org](<https://explorer.cardano.org/en/transaction?id={event.tx_id}>)'
+    )
+
+    return {'content': msg}
 
 
 if __name__ == '__main__':
@@ -149,16 +177,16 @@ if __name__ == '__main__':
 
             for event in events:
                 logger.info(f'Discord commenting for redemption event')
-                msg = redemption_to_discord_comment(event)
-                discord_comment(msg)
+                post_data = redemption_to_post_data(event)
+                discord_comment(post_data)
                 time.sleep(2)
 
         except http.client.RemoteDisconnected:
             logger.warning('Remote end closed connection without response')
         except urllib.error.HTTPError as e:
             logger.warning(f'HTTP Error occurred with status code: {e.code}')
-        except urllib.error.URLError:
-            logger.warning('URL Error occurred')
+        except urllib.error.URLError as e:
+            logger.warning(f'URL Error occurred: {e.reason}')
         except http.client.HTTPException:
             logger.warning('HTTP Exception occurred')
         except socket.timeout:
