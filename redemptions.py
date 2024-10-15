@@ -145,7 +145,7 @@ def redemption_to_post_data(event: RedemptionEvent) -> dict:
         f'- Redeemed: {event.asset_redeemed:,.6f} {event.asset_name}\n'
         f'- ADA Redeemed: {round_to_str(event.ada_redeemed, 2)} ADA {get_fish_scale_emoji(event.ada_redeemed)}\n'
         f'- Interest Paid: {round_to_str(event.interest / 1e6, 2)} ADA\n'
-        f'- Processing fee: {round_to_str(event.processing_fee / 1e6, 2)} ADA (to INDY Stakers)\n\n'
+        f'- Processing fee: {round_to_str(event.processing_fee, 2)} ADA (to INDY Stakers)\n\n'
         f'[cexplorer.io](<https://cexplorer.io/tx/{event.tx_id}>) ✧ '
         f'[adastat.net](<https://adastat.net/transactions/{event.tx_id}>) ✧ '
         f'[cardanoscan.io](<https://cardanoscan.io/transaction/{event.tx_id}>) ✧ '
