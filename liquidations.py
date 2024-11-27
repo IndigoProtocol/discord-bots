@@ -10,6 +10,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
+import ssl
+import certifi
+
+ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())
 
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 
@@ -81,6 +85,7 @@ def get_iasset_icon_url(iasset_name: str) -> str | None:
         'iUSD': 'https://cdn.discordapp.com/attachments/859469846734307362/1097731509634482267/iUSDsmall.png',
         'iBTC': 'https://cdn.discordapp.com/attachments/859469846734307362/1097731510112632862/iBTCsmall.png',
         'iETH': 'https://cdn.discordapp.com/attachments/859469846734307362/1097731509856772136/iETHsmall.png',
+        'iSOL': 'https://cdn.discordapp.com/attachments/816779565796032513/859538870193881139/1311400287562366987/iSOLemoji.png',
     }
 
     if iasset_name in urls:
@@ -94,6 +99,7 @@ def get_iasset_emoji(iasset_name: str) -> str:
         'iUSD': '<:iUSDemoji:1230941267622367393>',
         'iBTC': '<:iBTCemoji:1230941348744401047>',
         'iETH': '<:iETHemoji:1230941175607722136>',
+        'iSOL': '<:iSOLemoji:131139670814346479>',
     }
 
     if iasset_name in discord_emojis:
@@ -126,7 +132,7 @@ def liquidation_to_post_data(lq: dict) -> dict:
             iasset_burned_str = round_to_str(iasset_burned, 2)
         else:
             iasset_burned_str = f'{iasset_burned}'
-    elif iasset in ('iBTC', 'iETH'):
+    elif iasset in ('iBTC', 'iETH', 'iSOL'):
         price_main_prec = 8
         price_inverse_prec = 0
         mcr = 1.1

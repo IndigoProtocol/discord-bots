@@ -13,6 +13,10 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from enum import Enum, auto
+import ssl
+import certifi
+
+ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())
 
 import jsonschema
 
@@ -65,6 +69,7 @@ def get_iasset_emoji(iasset_name: str) -> str:
         'iUSD': '<:iUSDemoji:1230941267622367393>',
         'iBTC': '<:iBTCemoji:1230941348744401047>',
         'iETH': '<:iETHemoji:1230941175607722136>',
+        'iSOL': '<:iSOLemoji:131139670814346479>'
     }
 
     if iasset_name in discord_emojis:
