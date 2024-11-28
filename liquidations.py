@@ -266,7 +266,7 @@ if __name__ == '__main__':
             last_lq = check_liquidations(last_lq)
 
             if prev != last_lq:
-                logger.info(f'New liquidation, new last id: {last_lq["id"]}')
+                logger.info(f'New liquidation of {last_lq["asset"]}, id: {last_lq["id"]}')
             else:
                 logger.info(f'No new liquidations, last: {last_lq["id"]}')
         except http.client.RemoteDisconnected:

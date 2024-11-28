@@ -69,7 +69,7 @@ def get_iasset_emoji(iasset_name: str) -> str:
         'iUSD': '<:iUSDemoji:1230941267622367393>',
         'iBTC': '<:iBTCemoji:1230941348744401047>',
         'iETH': '<:iETHemoji:1230941175607722136>',
-        'iSOL': '<:iSOLemoji:131139670814346479>'
+        'iSOL': '<:iSOLemoji:1311396708143464479>'
     }
 
     if iasset_name in discord_emojis:
