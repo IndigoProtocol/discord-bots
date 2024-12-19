@@ -107,22 +107,48 @@ def submission_to_post_data(submission: PoCoPSubmission) -> dict:
     created_at = datetime.fromisoformat(submission.date.replace('Z', '+00:00'))
     formatted_date = created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
 
+    # Extract the platform (e.g., 'x.com' or 'twitter.com') from the link
+    platform = "𝕏" if "x.com" in submission.link else "Twitter" if "twitter.com" in submission.link else "🔗"
+
     message = (
-        f"🎨 **New PoCoP Submission**\n\n"
-        f"**Date**: {formatted_date}\n"
-        f"**Wallet**: `{submission.wallet}`\n\n"
-        f"**Link**: {submission.link}\n"
+        f"🎨 **New Proof of Creative Participation**\n\n"
+        f"**📅 Posted**: {formatted_date}\n"
+        f"**👛 Wallet**:\n`{submission.wallet}`\n\n"
+        f"**{platform} Post**: [View on X]({submission.link})\n"
+        f"**🌐 View on PoCoP**: [Check Submission]({POCOP_WEBSITE})"
     )
+
+    # Create an embed with custom color and fields
+    embed = {
+        'title': '🎭 Creative Contribution Verified',
+        'description': 'A new proof of participation has been submitted to the PoCoP system, demonstrating active engagement in the Indigo community.',
+        'color': 0x6A5ACD,  # Slate blue color
+        'fields': [
+            {
+                'name': '📊 Verification Status',
+                'value': 'Submission Recorded & Verified',
+                'inline': True
+            },
+            {
+                'name': f'{platform} Proof',
+                'value': f'[View Social Proof]({submission.link})',
+                'inline': True
+            }
+        ],
+        'footer': {
+            'text': '🎨 PoCoP - Building Community Through Creative Participation | Each submission strengthens our ecosystem'
+        },
+        'timestamp': submission.date
+    }
 
     return {
         'content': message,
-        'embeds': [{
-            'color': 0x7289DA,  # Discord blue color
-            'footer': {
-                'text': 'PoCoP Bot'
-            },
-            'timestamp': submission.date
-        }]
+        'embeds': [embed]
+    }
+
+    return {
+        'content': message,
+        'embeds': [embed]
     }
 
 
