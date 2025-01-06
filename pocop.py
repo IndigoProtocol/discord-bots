@@ -75,7 +75,6 @@ def fetch_pocop_submissions(page: int = 1, limit: int = 10) -> dict:
         # Debug information
         logger.debug(f"Request URL: {url}")
         logger.debug(f"Response status: {f.status}")
-        logger.debug(f"Response headers: {f.headers}")
 
         return json.loads(response)
     except Exception as e:
@@ -93,7 +92,7 @@ def parse_submission(submission: dict) -> PoCoPSubmission:
 
 
 def get_latest_submissions(
-    num_pages: int = 3, limit: int = 10
+    num_pages: int = 5, limit: int = 10
 ) -> List[PoCoPSubmission]:
     """Fetch latest submissions from multiple pages."""
     all_submissions = []
@@ -122,7 +121,7 @@ def submission_to_post_data(submission: PoCoPSubmission) -> dict:
         f"🎨 **New Proof of Creative Participation**\n\n"
         f"**📅 Posted**: {formatted_date}\n"
         f"**👛 Wallet**:\n`{submission.wallet}`\n\n"
-        f"**{platform} Post**: [View on X]({submission.link})\n"
+        f"**{platform} Post**: [View Submission]({submission.link})\n"
         f"**🌐 View on PoCoP**: [Check Submission]({POCOP_WEBSITE})"
     )
 
@@ -169,6 +168,8 @@ if __name__ == "__main__":
     # Initial fetch and post all existing submissions
     initial_submissions = get_latest_submissions()
     logger.info(f"Found {len(initial_submissions)} initial submissions")
+
+    # TODO: Make it optional to post all initial submissions
 
     # Post all initial submissions
     for submission in initial_submissions:
