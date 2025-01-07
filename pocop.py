@@ -225,6 +225,9 @@ def main():
                 s for s in submissions if s.link and s.link not in processed_links
             ]
 
+            # ✅ Sort submissions chronologically by date (oldest to newest)
+            new_submissions.sort(key=lambda s: datetime.fromisoformat(s.date.replace("Z", "+00:00")))
+
             for submission in new_submissions:
                 logger.info(f"New submission found: {submission.link}")
                 post_data = submission_to_post_data(submission)
@@ -250,6 +253,7 @@ def main():
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
         finally:
+            logger.info("Sleeping for 120 seconds before the next cycle...")
             time.sleep(120)  # Wait 2 minutes before rechecking
 
 
