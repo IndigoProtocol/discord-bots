@@ -10,7 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import List
+from typing import List, Tuple
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -28,7 +28,7 @@ PROCESSED_LINKS_FILE = "processed_links.json"
 if not WEBHOOK_URL and len(sys.argv) > 1:
     WEBHOOK_URL = sys.argv[1]
 
-BASE_URL = "https://pocop.indigodao.org:2053"
+BASE_URL = "https://api2.indigodao.org/json"
 POCOP_WEBSITE = "https://pocop.indigodao.org"
 
 
@@ -36,6 +36,8 @@ POCOP_WEBSITE = "https://pocop.indigodao.org"
 class PoCoPSubmission:
     link: str
     date: str
+    category: str = ""
+    views: int = 0
 
 
 def setup_logging() -> logging.Logger:
@@ -76,7 +78,7 @@ def discord_comment(post_data: dict):
 
 def fetch_pocop_submissions(page: int = 1, limit: int = 10) -> dict:
     """Fetch PoCoP submissions from the API."""
-    url = f"{BASE_URL}/json?page={page}&limit={limit}"
+    url = f"{BASE_URL}?page={page}&limit={limit}"
 
     headers = {
         "User-Agent": "DiscordBot (private use) Python-urllib/3.11",
@@ -107,9 +109,16 @@ def fetch_pocop_submissions(page: int = 1, limit: int = 10) -> dict:
 
 def parse_submission(submission: dict) -> PoCoPSubmission:
     """Parse raw submission data into PoCoPSubmission object."""
+    # Handle None views from API
+    views = submission.get("views", 0)
+    if views is None:
+        views = 0
+    
     return PoCoPSubmission(
         link=submission.get("link", ""),
         date=submission.get("date", ""),
+        category=submission.get("category", ""),
+        views=views,
     )
 
 
@@ -146,22 +155,50 @@ def get_latest_submissions(limit: int = 10) -> List[PoCoPSubmission]:
     return submissions
 
 
+def get_platform_info(link: str, category: str) -> Tuple[str, str]:
+    """Get platform emoji and name based on link and category."""
+    if "youtube.com" in link or "youtu.be" in link:
+        return "📺", "YouTube"
+    elif "x.com" in link:
+        return "𝕏", "X (Twitter)"
+    elif "twitter.com" in link:
+        return "🐦", "Twitter"
+    elif "instagram.com" in link:
+        return "📷", "Instagram"
+    elif "tiktok.com" in link:
+        return "🎵", "TikTok"
+    elif "linkedin.com" in link:
+        return "💼", "LinkedIn"
+    elif "reddit.com" in link:
+        return "🔴", "Reddit"
+    elif "medium.com" in link:
+        return "📝", "Medium"
+    elif "github.com" in link:
+        return "🐙", "GitHub"
+    elif category == "youtube":
+        return "📺", "YouTube"
+    elif category == "educational":
+        return "📚", "Educational Content"
+    else:
+        return "🔗", "Web Link"
+
+
 def submission_to_post_data(submission: PoCoPSubmission) -> dict:
     """Convert submission to Discord message format."""
     created_at = datetime.fromisoformat(submission.date.replace("Z", "+00:00"))
     formatted_date = created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    platform = (
-        "𝕏"
-        if "x.com" in submission.link
-        else "Twitter" if "twitter.com" in submission.link
-        else "🔗"
-    )
+    platform_emoji, platform_name = get_platform_info(submission.link, submission.category)
+    
+    # Add category info if available
+    category_text = f" • **Category**: {submission.category.title()}" if submission.category else ""
+    views_text = f" • **Views**: {submission.views}" if submission.views and submission.views > 0 else ""
 
     message = (
         f"🎨 **New Proof of Creative Participation**\n\n"
         f"**📅 Posted**: {formatted_date}\n"
-        f"**{platform} Post**: [View Submission]({submission.link})\n"
+        f"**{platform_emoji} Platform**: {platform_name}\n"
+        f"**🔗 Content**: [View Submission]({submission.link})\n{category_text}{views_text}\n"
         f"**🌐 View on PoCoP**: [Check Submission]({POCOP_WEBSITE})"
     )
 
@@ -180,21 +217,6 @@ def save_processed_links(links: set):
     """Save processed links to a file."""
     with open(PROCESSED_LINKS_FILE, "w") as file:
         json.dump(list(links), file)
-
-
-def setup_logging() -> logging.Logger:
-    """Set up logging configuration."""
-    logger = logging.getLogger("pocop_bot")
-    logger.setLevel(logging.DEBUG)
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
-    formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)8s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    formatter.converter = time.gmtime
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-    return logger
 
 
 def webhook_sanity_check():
@@ -229,7 +251,7 @@ def main():
             new_submissions.sort(key=lambda s: datetime.fromisoformat(s.date.replace("Z", "+00:00")))
 
             for submission in new_submissions:
-                logger.info(f"New submission found: {submission.link}")
+                logger.info(f"New submission found: {submission.link} ({submission.category})")
                 post_data = submission_to_post_data(submission)
                 discord_comment(post_data)
                 processed_links.add(submission.link)
