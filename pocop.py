@@ -37,7 +37,6 @@ class PoCoPSubmission:
     link: str
     date: str
     category: str = ""
-    views: int = 0
 
 
 def setup_logging() -> logging.Logger:
@@ -109,16 +108,10 @@ def fetch_pocop_submissions(page: int = 1, limit: int = 10) -> dict:
 
 def parse_submission(submission: dict) -> PoCoPSubmission:
     """Parse raw submission data into PoCoPSubmission object."""
-    # Handle None views from API
-    views = submission.get("views", 0)
-    if views is None:
-        views = 0
-    
     return PoCoPSubmission(
         link=submission.get("link", ""),
         date=submission.get("date", ""),
         category=submission.get("category", ""),
-        views=views,
     )
 
 
@@ -192,13 +185,12 @@ def submission_to_post_data(submission: PoCoPSubmission) -> dict:
     
     # Add category info if available
     category_text = f" • **Category**: {submission.category.title()}" if submission.category else ""
-    views_text = f" • **Views**: {submission.views}" if submission.views and submission.views > 0 else ""
 
     message = (
         f"🎨 **New Proof of Creative Participation**\n\n"
         f"**📅 Posted**: {formatted_date}\n"
         f"**{platform_emoji} Platform**: {platform_name}\n"
-        f"**🔗 Content**: [View Submission]({submission.link})\n{category_text}{views_text}\n"
+        f"**🔗 Content**: [View Submission]({submission.link})\n{category_text}\n"
         f"**🌐 View on PoCoP**: [Check Submission]({POCOP_WEBSITE})"
     )
 
