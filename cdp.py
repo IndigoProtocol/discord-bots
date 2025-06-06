@@ -19,6 +19,7 @@ import certifi
 ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())
 
 import jsonschema
+from jsonschema import ValidationError
 
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 
@@ -30,6 +31,8 @@ class CdpEventType(Enum):
     WITHDRAW = auto()
     FREEZE = auto()
     MERGE = auto()
+    ADJUST = auto()  # Adding more debt to existing position
+    BURN = auto()    # Reducing debt from existing position
 
 
 @dataclass
@@ -120,9 +123,25 @@ def event_to_discord_comment(event: CdpEvent) -> str:
         lines.append(f'**{iasset_emoji} CDP frozen** ❄️')
     elif event.type == CdpEventType.MERGE:
         lines.append(f'**Frozen {iasset_emoji} CDPs merged** ↔️')
+    elif event.type == CdpEventType.ADJUST:
+        lines.append(f'**{iasset_emoji} {event.iasset_name} adjusted** 🪙')
+    elif event.type == CdpEventType.BURN:
+        lines.append(f'**{iasset_emoji} {event.iasset_name} burned** 🔥')
 
-    sign = '+' if event.type in (CdpEventType.OPEN, CdpEventType.DEPOSIT) else '-'
-    lines.append(f'- {sign}{event.ada:,.0f} ADA {get_fish_scale_emoji(event.ada)}')
+    if event.type in (CdpEventType.ADJUST, CdpEventType.BURN):
+        # For adjust/burn events, show the debt amount as the primary value
+        if event.debt >= 1000:
+            debt_str = round_to_str(event.debt, 0)
+        elif event.debt >= 1:
+            debt_str = round_to_str(event.debt, 2)
+        else:
+            debt_str = f'{event.debt}'
+        sign = '+' if event.type == CdpEventType.ADJUST else '-'
+        lines.append(f'- {sign}{debt_str} {event.iasset_name}')
+    else:
+        # For other events, show ADA amount
+        sign = '+' if event.type in (CdpEventType.OPEN, CdpEventType.DEPOSIT) else '-'
+        lines.append(f'- {sign}{event.ada:,.0f} ADA {get_fish_scale_emoji(event.ada)}')
 
     if event.debt >= 1000:
         debt_str = round_to_str(event.debt, 0)
@@ -131,7 +150,7 @@ def event_to_discord_comment(event: CdpEvent) -> str:
     else:
         debt_str = f'{event.debt}'
 
-    if event.type != CdpEventType.MERGE:
+    if event.type not in (CdpEventType.MERGE, CdpEventType.ADJUST, CdpEventType.BURN):
         lines.append(f'- Debt: {debt_str} {event.iasset_name}')
 
     if event.type not in (CdpEventType.FREEZE, CdpEventType.MERGE):
@@ -212,7 +231,7 @@ def validate_cdps_json(json_response):
     try:
         jsonschema.validate(json_response, schema)
         return None
-    except jsonschema.exceptions.ValidationError as e:
+    except ValidationError as e:
         return e
 
 
@@ -299,6 +318,7 @@ def create_cdp_event(event_type, cdp, tvl, new_collateral=None, tx_id=None):
 
 
 def create_deposit_withdraw_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
+    # Check for collateral changes (deposit/withdraw)
     if new_cdp['collateralAmount'] != old_cdp['collateralAmount']:
         event_type = (
             CdpEventType.DEPOSIT
@@ -318,6 +338,32 @@ def create_deposit_withdraw_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
                 tx_id=new_cdp['output_hash'],
             )
         )
+    
+    # Check for debt changes (adjust/burn) - independent of collateral changes
+    if new_cdp['mintedAmount'] != old_cdp['mintedAmount']:
+        debt_change = abs(new_cdp['mintedAmount'] - old_cdp['mintedAmount']) / 1e6
+        
+        # Only create adjust/burn events for significant amounts (1k+ threshold)
+        if debt_change >= 1000:
+            event_type = (
+                CdpEventType.ADJUST
+                if new_cdp['mintedAmount'] > old_cdp['mintedAmount']
+                else CdpEventType.BURN
+            )
+            cdp_events.append(
+                CdpEvent(
+                    type=event_type,
+                    ada=0,  # No ADA amount for pure adjust/burn
+                    tvl=tvl,
+                    new_collateral=new_cdp['collateralAmount'] / 1e6,
+                    iasset_name=new_cdp['asset'],
+                    debt=debt_change,  # The amount adjusted/burned
+                    owner=new_cdp['owner'],
+                    tx_id=new_cdp['output_hash'],
+                )
+            )
+    
+    # Check for freeze events
     elif new_cdp['owner'] is None and old_cdp['owner'] is not None:
         # MERGE event
         if old_cdp['owner'] == '' or old_cdp['owner'] == 'NULL':
@@ -402,18 +448,29 @@ if __name__ == '__main__':
     logger.info(f'Logging JSON responses to {log_dir}')
 
     prev_cdps = fetch_cdps(log_dir)
-    logger.info(f'Fetched {len(prev_cdps)} initial CDPs')
+    fetch_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+    logger.info(f'Fetched {len(prev_cdps)} initial CDPs at {fetch_time}')
+    
+    if prev_cdps:
+        # Find latest CDP by output_hash (most recent transaction)
+        latest_cdp = max(prev_cdps, key=lambda x: x['output_hash'])
+        logger.info(f'Latest CDP: {latest_cdp["asset"]} - {latest_cdp["collateralAmount"]/1e6:,.0f} ADA (tx: {latest_cdp["output_hash"][:8]}...)')
 
     while True:
         try:
             time.sleep(30)
             cdps = fetch_cdps(log_dir)
+            fetch_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
             events = generate_cdp_events(prev_cdps, cdps)
 
             if len(events) > 0:
-                logger.info(f'Fetched {len(events)} new events')
+                logger.info(f'Fetched {len(events)} new events at {fetch_time}')
+                # Show latest CDP when there are new events
+                if cdps:
+                    latest_cdp = max(cdps, key=lambda x: x['output_hash'])
+                    logger.info(f'Latest CDP after events: {latest_cdp["asset"]} - {latest_cdp["collateralAmount"]/1e6:,.0f} ADA (tx: {latest_cdp["output_hash"][:8]}...)')
             else:
-                logger.debug(f'No new CDP events')
+                logger.debug(f'No new CDP events (checked at {fetch_time})')
 
             if len(events) > 20:
                 logger.error(
@@ -424,8 +481,17 @@ if __name__ == '__main__':
             prev_cdps = cdps
 
             for event in events:
-                if event.ada >= 25_000:
-                    logger.info(f'Discord commenting for {event.ada:,.0f} ADA event')
+                # Post collateral events >= 25k ADA or adjust/burn events >= 1k
+                should_post = (
+                    (event.type in (CdpEventType.ADJUST, CdpEventType.BURN) and event.debt >= 1000) or
+                    (event.type not in (CdpEventType.ADJUST, CdpEventType.BURN) and event.ada >= 25_000)
+                )
+                
+                if should_post:
+                    if event.type in (CdpEventType.ADJUST, CdpEventType.BURN):
+                        logger.info(f'Discord commenting for {event.debt:,.0f} {event.iasset_name} {event.type.name.lower()} event')
+                    else:
+                        logger.info(f'Discord commenting for {event.ada:,.0f} ADA event')
                     msg = event_to_discord_comment(event)
                     discord_comment(msg)
                     time.sleep(2)
