@@ -13,6 +13,10 @@ WEBHOOK_URL='https://discord.com/api/webhooks/…' python3 cdp.py
 WEBHOOK_URL='https://discord.com/api/webhooks/…' python3 liquidations.py
 ```
 
+```shell
+WEBHOOK_URL='https://discord.com/api/webhooks/…' python3 lp_rewards_epoch_bot.py
+```
+
 ## Bot ideas
 
 - Vote results, final and on-demand partial
