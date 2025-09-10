@@ -29,16 +29,7 @@ LP_DISTRIBUTION_API = "https://config.indigoprotocol.io/mainnet/lp-distribution.
 GENESIS_BLOCK_START_TIME_SECONDS = 1506203091  # Cardano mainnet genesis
 EPOCH_LENGTH_SECONDS = 432000  # 5 days
 
-# Stability Pool rewards (hardcoded as per requirements)
-STABILITY_POOL_REWARDS = {
-    "iUSD": 5250,
-    "iBTC": 1800,
-    "iETH": 500,
-    "iSOL": 40
-}
-
-# Other rewards
-INDY_STAKING = 10000
+# Previous total for comparison
 PREVIOUS_TOTAL = 15960
 
 
@@ -79,36 +70,28 @@ def fetch_lp_distribution() -> Dict[str, Any]:
         raise Exception(f"Failed to fetch LP distribution from API: {e}")
 
 
-def calculate_totals(lp_distribution: Dict[str, Any]) -> tuple:
-    """Calculate total LP rewards and overall totals."""
+def calculate_totals(lp_distribution: Dict[str, Any]) -> int:
+    """Calculate total LP rewards."""
     lp_total = 0
     for dex, pairs in lp_distribution.items():
         for pair, amount in pairs.items():
             lp_total += amount
     
-    sp_total = sum(STABILITY_POOL_REWARDS.values())
-    total_iassets = lp_total + sp_total
-    
-    return lp_total, sp_total, total_iassets
+    return lp_total
 
 
 def format_rewards_message(lp_distribution: Dict[str, Any], epoch: int) -> str:
     """Format the rewards breakdown message for Discord."""
-    lp_total, sp_total, total_iassets = calculate_totals(lp_distribution)
+    lp_total = calculate_totals(lp_distribution)
     
-    message = f"""**Epoch {epoch} Rewards Distribution**
+    message = f"""**Epoch {epoch} LP Rewards Distribution**
 
-**Total iAssets Incentives**
-{total_iassets:,} INDY per epoch
+**Total LP Incentives**
+{lp_total:,} INDY per epoch
 Previous {PREVIOUS_TOTAL:,} INDY
 
-**Stability Pool ({sp_total:,} INDY)**
+**Liquidity Pools ({lp_total:,} INDY)**
 """
-    
-    for asset, amount in STABILITY_POOL_REWARDS.items():
-        message += f"{asset}: {amount:,} INDY\n"
-    
-    message += f"\n**Liquidity Pools ({lp_total:,} INDY)**\n"
     
     for dex, pairs in lp_distribution.items():
         # Format DEX name properly
@@ -118,17 +101,7 @@ Previous {PREVIOUS_TOTAL:,} INDY
             message += f"{pair}: {amount:,} INDY\n"
         message += "\n"
     
-    message += f"""**Total INDY Incentives**
-{INDY_STAKING:,} INDY per epoch
-No Changes
-
-**INDY Staking**
-{INDY_STAKING:,} INDY
-
-**Rationale for Incentive Adjustments**
-These emissions adjustments support our commitment to optimal SP/LP health and sustainability going forward. No major rebalancing between SP and LP incentives are in play yet this adjustment will improve tokenomics aligning with the DAO's long term goals for the protocol."""
-    
-    return message
+    return message.rstrip()
 
 
 def send_discord_message(message: str):
