@@ -29,8 +29,6 @@ LP_DISTRIBUTION_API = "https://config.indigoprotocol.io/mainnet/lp-distribution.
 GENESIS_BLOCK_START_TIME_SECONDS = 1506203091  # Cardano mainnet genesis
 EPOCH_LENGTH_SECONDS = 432000  # 5 days
 
-# Previous total for comparison
-PREVIOUS_TOTAL = 15960
 
 
 def get_current_epoch() -> int:
@@ -88,7 +86,6 @@ def format_rewards_message(lp_distribution: Dict[str, Any], epoch: int) -> str:
 
 **Total LP Incentives**
 {lp_total:,} INDY per epoch
-Previous {PREVIOUS_TOTAL:,} INDY
 
 **Liquidity Pools ({lp_total:,} INDY)**
 """
