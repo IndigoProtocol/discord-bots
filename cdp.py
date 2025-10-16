@@ -300,7 +300,7 @@ def create_mint_burn_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
         debt_change = abs(new_cdp['mintedAmount'] - old_cdp['mintedAmount']) / 1e6
         
         # Debug logging for debt changes
-        logger.debug(f"Debt change detected: {old_cdp['mintedAmount']/1e6:.2f} -> {new_cdp['mintedAmount']/1e6:.2f} ({debt_change:.2f} {new_cdp['asset']})")
+        logger.debug(f"Debt change detected: {old_cdp['mintedAmount']/1e6:.6f} -> {new_cdp['mintedAmount']/1e6:.6f} ({debt_change:.6f} {new_cdp['asset']})")
         
         # Create mint/burn events for significant amounts (1k+ threshold)
         if debt_change >= 1000:
@@ -445,7 +445,7 @@ if __name__ == '__main__':
             for event in events:
                 # Log every detected event
                 if event.type in (CdpEventType.MINT, CdpEventType.BURN):
-                    logger.info(f'Detected {event.type.name} event: {event.debt:.2f} {event.iasset_name} (tx: {event.tx_id[:8] if event.tx_id else "None"}...)')
+                    logger.info(f'Detected {event.type.name} event: {event.debt:.6f} {event.iasset_name} (tx: {event.tx_id[:8] if event.tx_id else "None"}...)')
                 else:
                     logger.info(f'Detected {event.type.name} event: {event.ada:.0f} ADA (tx: {event.tx_id[:8] if event.tx_id else "None"}...)')
                 
@@ -455,18 +455,18 @@ if __name__ == '__main__':
                     (event.type not in (CdpEventType.MINT, CdpEventType.BURN) and event.ada >= 25_000)
                 )
                 
-                logger.debug(f'Event posting check: type={event.type.name}, debt={event.debt:.2f}, ada={event.ada:.0f}, should_post={should_post}')
+                logger.debug(f'Event posting check: type={event.type.name}, debt={event.debt:.6f}, ada={event.ada:.0f}, should_post={should_post}')
                 
                 if should_post:
                     if event.type in (CdpEventType.MINT, CdpEventType.BURN):
-                        logger.info(f'Discord commenting for {event.debt:.2f} {event.iasset_name} {event.type.name.lower()} event')
+                        logger.info(f'Discord commenting for {event.debt:.6f} {event.iasset_name} {event.type.name.lower()} event')
                     else:
                         logger.info(f'Discord commenting for {event.ada:,.0f} ADA event')
                     msg = event_to_discord_comment(event)
                     discord_comment(msg)
                     time.sleep(2)
                 else:
-                    logger.info(f'Event not posted - below threshold: {event.type.name} {event.debt:.2f} {event.iasset_name} or {event.ada:.0f} ADA')
+                    logger.info(f'Event not posted - below threshold: {event.type.name} {event.debt:.6f} {event.iasset_name} or {event.ada:.0f} ADA')
 
         except http.client.RemoteDisconnected:
             logger.warning('Remote end closed connection without response')
