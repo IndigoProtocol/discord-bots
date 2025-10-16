@@ -27,12 +27,10 @@ WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 class CdpEventType(Enum):
     OPEN = auto()
     CLOSE = auto()
-    DEPOSIT = auto()
-    WITHDRAW = auto()
+    MINT = auto()    # Adding more debt to existing position
+    BURN = auto()    # Reducing debt from existing position
     FREEZE = auto()
     MERGE = auto()
-    ADJUST = auto()  # Adding more debt to existing position
-    BURN = auto()    # Reducing debt from existing position
 
 
 @dataclass
@@ -115,32 +113,28 @@ def event_to_discord_comment(event: CdpEvent) -> str:
         lines.append(f'{iasset_emoji} **CDP opened**')
     elif event.type == CdpEventType.CLOSE:
         lines.append(f'{iasset_emoji} **CDP closed**')
-    elif event.type == CdpEventType.DEPOSIT:
-        lines.append(f'**Deposit into {iasset_emoji} CDP**')
-    elif event.type == CdpEventType.WITHDRAW:
-        lines.append(f'**Withdrawal from {iasset_emoji} CDP**')
+    elif event.type == CdpEventType.MINT:
+        lines.append(f'**{iasset_emoji} {event.iasset_name} minted** 🪙')
+    elif event.type == CdpEventType.BURN:
+        lines.append(f'**{iasset_emoji} {event.iasset_name} burned** 🔥')
     elif event.type == CdpEventType.FREEZE:
         lines.append(f'**{iasset_emoji} CDP frozen** ❄️')
     elif event.type == CdpEventType.MERGE:
         lines.append(f'**Frozen {iasset_emoji} CDPs merged** ↔️')
-    elif event.type == CdpEventType.ADJUST:
-        lines.append(f'**{iasset_emoji} {event.iasset_name} adjusted** 🪙')
-    elif event.type == CdpEventType.BURN:
-        lines.append(f'**{iasset_emoji} {event.iasset_name} burned** 🔥')
 
-    if event.type in (CdpEventType.ADJUST, CdpEventType.BURN):
-        # For adjust/burn events, show the debt amount as the primary value
+    if event.type in (CdpEventType.MINT, CdpEventType.BURN):
+        # For mint/burn events, show the debt amount as the primary value
         if event.debt >= 1000:
             debt_str = round_to_str(event.debt, 0)
         elif event.debt >= 1:
             debt_str = round_to_str(event.debt, 2)
         else:
             debt_str = f'{event.debt}'
-        sign = '+' if event.type == CdpEventType.ADJUST else '-'
+        sign = '+' if event.type == CdpEventType.MINT else '-'
         lines.append(f'- {sign}{debt_str} {event.iasset_name}')
     else:
         # For other events, show ADA amount
-        sign = '+' if event.type in (CdpEventType.OPEN, CdpEventType.DEPOSIT) else '-'
+        sign = '+' if event.type == CdpEventType.OPEN else '-'
         lines.append(f'- {sign}{event.ada:,.0f} ADA {get_fish_scale_emoji(event.ada)}')
 
     if event.debt >= 1000:
@@ -150,27 +144,10 @@ def event_to_discord_comment(event: CdpEvent) -> str:
     else:
         debt_str = f'{event.debt}'
 
-    if event.type not in (CdpEventType.MERGE, CdpEventType.ADJUST, CdpEventType.BURN):
+    if event.type not in (CdpEventType.MERGE, CdpEventType.MINT, CdpEventType.BURN):
         lines.append(f'- Debt: {debt_str} {event.iasset_name}')
 
     if event.type not in (CdpEventType.FREEZE, CdpEventType.MERGE):
-        if event.new_collateral is not None and event.type in (
-            CdpEventType.DEPOSIT,
-            CdpEventType.WITHDRAW,
-        ):
-            if event.type == CdpEventType.DEPOSIT:
-                pct_change = (event.ada / event.new_collateral) * 100
-            else:
-                pct_change = -1 * event.ada / (event.ada + event.new_collateral) * 100
-            pct_prec = 0 if 1 <= abs(pct_change) <= 99 else 1
-            collateral = f'{event.new_collateral:,.0f}'
-            lines.append(f'- New collateral: {collateral} ADA')
-            lines.append(f'- Change: {pct_change:+.{pct_prec}f}%')
-
-        # if event.type in (CdpEventType.WITHDRAW, CdpEventType.CLOSE):
-        #     tax = event.ada * 0.02
-        #     lines.append(f'- 2% to INDY stakers: {tax:,.0f} ADA')
-
         lines.append(f'- New TVL: {event.tvl:,.0f} ADA')
 
     if event.type != CdpEventType.MERGE:
@@ -267,7 +244,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
             cdp_events.append(create_cdp_event(CdpEventType.OPEN, new_cdp, tvl))
         else:
             old_cdp = old_dict_with_owner[new_key]
-            create_deposit_withdraw_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events)
+            create_mint_burn_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events)
 
     frozen: dict[tuple[str, str], bool] = {}
 
@@ -317,51 +294,36 @@ def create_cdp_event(event_type, cdp, tvl, new_collateral=None, tx_id=None):
     )
 
 
-def create_deposit_withdraw_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
-    # Check for collateral changes (deposit/withdraw)
-    if new_cdp['collateralAmount'] != old_cdp['collateralAmount']:
-        event_type = (
-            CdpEventType.DEPOSIT
-            if new_cdp['collateralAmount'] > old_cdp['collateralAmount']
-            else CdpEventType.WITHDRAW
-        )
-        cdp_events.append(
-            CdpEvent(
-                type=event_type,
-                ada=abs(new_cdp['collateralAmount'] - old_cdp['collateralAmount'])
-                / 1e6,
-                tvl=tvl,
-                new_collateral=new_cdp['collateralAmount'] / 1e6,
-                iasset_name=new_cdp['asset'],
-                debt=new_cdp['mintedAmount'] / 1e6,
-                owner=new_cdp['owner'],
-                tx_id=new_cdp['output_hash'],
-            )
-        )
-    
-    # Check for debt changes (adjust/burn) - independent of collateral changes
+def create_mint_burn_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
+    # Check for debt changes (mint/burn)
     if new_cdp['mintedAmount'] != old_cdp['mintedAmount']:
         debt_change = abs(new_cdp['mintedAmount'] - old_cdp['mintedAmount']) / 1e6
         
-        # Only create adjust/burn events for significant amounts (1k+ threshold)
+        # Debug logging for debt changes
+        logger.debug(f"Debt change detected: {old_cdp['mintedAmount']/1e6:.2f} -> {new_cdp['mintedAmount']/1e6:.2f} ({debt_change:.2f} {new_cdp['asset']})")
+        
+        # Create mint/burn events for significant amounts (1k+ threshold)
         if debt_change >= 1000:
             event_type = (
-                CdpEventType.ADJUST
+                CdpEventType.MINT
                 if new_cdp['mintedAmount'] > old_cdp['mintedAmount']
                 else CdpEventType.BURN
             )
+            logger.info(f"Creating {event_type.name} event: {debt_change:.2f} {new_cdp['asset']} (tx: {new_cdp['output_hash'][:8]}...)")
             cdp_events.append(
                 CdpEvent(
                     type=event_type,
-                    ada=0,  # No ADA amount for pure adjust/burn
+                    ada=0,  # No ADA amount for pure mint/burn
                     tvl=tvl,
                     new_collateral=new_cdp['collateralAmount'] / 1e6,
                     iasset_name=new_cdp['asset'],
-                    debt=debt_change,  # The amount adjusted/burned
+                    debt=debt_change,  # The amount minted/burned
                     owner=new_cdp['owner'],
                     tx_id=new_cdp['output_hash'],
                 )
             )
+        else:
+            logger.debug(f"No debt change detected: {debt_change:.2f} {new_cdp['asset']}")
     
     # Check for freeze events
     elif new_cdp['owner'] is None and old_cdp['owner'] is not None:
@@ -481,20 +443,30 @@ if __name__ == '__main__':
             prev_cdps = cdps
 
             for event in events:
-                # Post collateral events >= 25k ADA or adjust/burn events >= 1k
+                # Log every detected event
+                if event.type in (CdpEventType.MINT, CdpEventType.BURN):
+                    logger.info(f'Detected {event.type.name} event: {event.debt:.2f} {event.iasset_name} (tx: {event.tx_id[:8] if event.tx_id else "None"}...)')
+                else:
+                    logger.info(f'Detected {event.type.name} event: {event.ada:.0f} ADA (tx: {event.tx_id[:8] if event.tx_id else "None"}...)')
+                
+                # Post mint/burn events >= 1k iAsset or other events >= 25k ADA  
                 should_post = (
-                    (event.type in (CdpEventType.ADJUST, CdpEventType.BURN) and event.debt >= 1000) or
-                    (event.type not in (CdpEventType.ADJUST, CdpEventType.BURN) and event.ada >= 25_000)
+                    (event.type in (CdpEventType.MINT, CdpEventType.BURN) and event.debt >= 1000) or
+                    (event.type not in (CdpEventType.MINT, CdpEventType.BURN) and event.ada >= 25_000)
                 )
                 
+                logger.debug(f'Event posting check: type={event.type.name}, debt={event.debt:.2f}, ada={event.ada:.0f}, should_post={should_post}')
+                
                 if should_post:
-                    if event.type in (CdpEventType.ADJUST, CdpEventType.BURN):
-                        logger.info(f'Discord commenting for {event.debt:,.0f} {event.iasset_name} {event.type.name.lower()} event')
+                    if event.type in (CdpEventType.MINT, CdpEventType.BURN):
+                        logger.info(f'Discord commenting for {event.debt:.2f} {event.iasset_name} {event.type.name.lower()} event')
                     else:
                         logger.info(f'Discord commenting for {event.ada:,.0f} ADA event')
                     msg = event_to_discord_comment(event)
                     discord_comment(msg)
                     time.sleep(2)
+                else:
+                    logger.info(f'Event not posted - below threshold: {event.type.name} {event.debt:.2f} {event.iasset_name} or {event.ada:.0f} ADA')
 
         except http.client.RemoteDisconnected:
             logger.warning('Remote end closed connection without response')
