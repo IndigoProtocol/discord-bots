@@ -302,8 +302,8 @@ def create_mint_burn_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
         # Debug logging for debt changes
         logger.debug(f"Debt change detected: {old_cdp['mintedAmount']/1e6:.6f} -> {new_cdp['mintedAmount']/1e6:.6f} ({debt_change:.6f} {new_cdp['asset']})")
         
-        # Create mint/burn events for significant amounts (1k+ threshold)
-        if debt_change >= 1000:
+        # Create mint/burn events for all amounts
+        if debt_change > 0:
             event_type = (
                 CdpEventType.MINT
                 if new_cdp['mintedAmount'] > old_cdp['mintedAmount']
@@ -448,10 +448,11 @@ if __name__ == '__main__':
                     logger.info(f'Detected {event.type.name} event: {event.debt:.6f} {event.iasset_name} (tx: {event.tx_id[:8] if event.tx_id else "None"}...)')
                 else:
                     logger.info(f'Detected {event.type.name} event: {event.ada:.0f} ADA (tx: {event.tx_id[:8] if event.tx_id else "None"}...)')
-                
-                # Post mint/burn events >= 1k iAsset or other events >= 25k ADA  
+
+                # Post all burn events, mint events >= 1k iAsset, or other events >= 25k ADA  
                 should_post = (
-                    (event.type in (CdpEventType.MINT, CdpEventType.BURN) and event.debt >= 1000) or
+                    (event.type == CdpEventType.BURN) or
+                    (event.type == CdpEventType.MINT and event.debt >= 1000) or
                     (event.type not in (CdpEventType.MINT, CdpEventType.BURN) and event.ada >= 25_000)
                 )
                 
@@ -466,7 +467,10 @@ if __name__ == '__main__':
                     discord_comment(msg)
                     time.sleep(2)
                 else:
-                    logger.info(f'Event not posted - below threshold: {event.type.name} {event.debt:.6f} {event.iasset_name} or {event.ada:.0f} ADA')
+                    if event.type == CdpEventType.MINT:
+                        logger.info(f'Event not posted - below threshold: {event.type.name} {event.debt:.6f} {event.iasset_name} (need >= 1000)')
+                    else:
+                        logger.info(f'Event not posted - below threshold: {event.type.name} {event.ada:.0f} ADA (need >= 25k)')
 
         except http.client.RemoteDisconnected:
             logger.warning('Remote end closed connection without response')
