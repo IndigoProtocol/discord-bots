@@ -1,0 +1,6 @@
+.idea
+.vscode
+.venv
+.env
+last_posted_epoch.json
+CLAUDE.md

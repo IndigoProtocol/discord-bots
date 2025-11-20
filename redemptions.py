@@ -33,6 +33,7 @@ class RedemptionEvent:
     asset_name: str
     processing_fee: float
     tx_id: str
+    redemption_type: str
 
 
 def discord_comment(post_data: dict):
@@ -69,7 +70,7 @@ def redemption_to_discord_comment(event: RedemptionEvent) -> str:
 
     asset_emoji = get_iasset_emoji(event.asset_name)
 
-    lines.append(f'{asset_emoji} {event.asset_name} Redemption')
+    lines.append(f'{asset_emoji} {event.asset_name} {event.redemption_type} Redemption')
     lines.append(f'- Redeemed: {event.asset_redeemed:,.2f} {event.asset_name}')
     lines.append(f'- ADA Redeemed: {event.ada_redeemed:,.2f} ADA {get_fish_scale_emoji(event.ada_redeemed)}')
     lines.append(f'- Interest Paid: {event.interest / 1e6:,.2f} ADA')
@@ -100,6 +101,7 @@ def generate_redemption_events(old_list: list[str], new_list: list[dict]) -> lis
                     asset_name=new_redemption['asset'],
                     processing_fee=new_redemption['processing_fee_lovelaces'] / 1e6,
                     tx_id=new_redemption['tx_hash'],
+                    redemption_type=new_redemption['type'],
                 )
             )
             old_list.append(new_redemption['tx_hash'])
@@ -141,7 +143,7 @@ def redemption_to_post_data(event: RedemptionEvent) -> dict:
     iasset_emoji = get_iasset_emoji(event.asset_name)
 
     msg = (
-        f'{iasset_emoji} **{event.asset_name} Redemption**\n'
+        f'{iasset_emoji} **{event.asset_name} {event.redemption_type} Redemption**\n'
         f'- Redeemed: {event.asset_redeemed:,.6f} {event.asset_name}\n'
         f'- ADA Redeemed: {round_to_str(event.ada_redeemed, 2)} ADA {get_fish_scale_emoji(event.ada_redeemed)}\n'
         f'- Interest Paid: {round_to_str(event.interest / 1e6, 2)} ADA\n'
