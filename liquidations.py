@@ -125,7 +125,7 @@ def liquidation_to_post_data(lq: dict) -> dict:
     if iasset == 'iUSD':
         price_main_prec = 3
         price_inverse_prec = 3
-        mcr = 1.5
+        mcr = 1.1
         if iasset_burned >= 1000:
             iasset_burned_str = round_to_str(iasset_burned, 0)
         elif iasset_burned >= 1:
