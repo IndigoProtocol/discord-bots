@@ -43,6 +43,18 @@ class CdpEvent:
     debt: float
     owner: str | None  # Merge events don't have an owner.
     tx_id: str | None  # Closed account's final tx_id can't be discerned from API.
+    collateral_asset: str = ''  # v3 multi-asset collateral; '' means ADA.
+    interest: float = 0  # v3 accrued interest in the iAsset.
+
+
+def collateral_label(collateral_asset: str) -> str:
+    # v3 CDPs carry a collateral_asset; empty string means ADA. Format of the
+    # ticker is unconfirmed (no non-ADA CDP exists yet), so render it raw.
+    return collateral_asset or 'ADA'
+
+
+def cdp_interest(cdp: dict) -> float:
+    return (cdp.get('interest_iasset_amount') or 0) / 1e6
 
 
 def discord_comment(msg: str):
@@ -122,6 +134,8 @@ def event_to_discord_comment(event: CdpEvent) -> str:
     elif event.type == CdpEventType.MERGE:
         lines.append(f'**Frozen {iasset_emoji} CDPs merged** ↔️')
 
+    coll_label = collateral_label(event.collateral_asset)
+
     if event.type in (CdpEventType.MINT, CdpEventType.BURN):
         # For mint/burn events, show the debt amount as the primary value
         if event.debt >= 1000:
@@ -133,9 +147,11 @@ def event_to_discord_comment(event: CdpEvent) -> str:
         sign = '+' if event.type == CdpEventType.MINT else '-'
         lines.append(f'- {sign}{debt_str} {event.iasset_name}')
     else:
-        # For other events, show ADA amount
+        # For other events, show the collateral amount. Fish-scale emoji is
+        # ADA-tuned, so only show it for ADA collateral.
         sign = '+' if event.type == CdpEventType.OPEN else '-'
-        lines.append(f'- {sign}{event.ada:,.0f} ADA {get_fish_scale_emoji(event.ada)}')
+        fish = get_fish_scale_emoji(event.ada) if not event.collateral_asset else ''
+        lines.append(f'- {sign}{event.ada:,.0f} {coll_label} {fish}'.rstrip())
 
     if event.debt >= 1000:
         debt_str = round_to_str(event.debt, 0)
@@ -146,6 +162,9 @@ def event_to_discord_comment(event: CdpEvent) -> str:
 
     if event.type not in (CdpEventType.MERGE, CdpEventType.MINT, CdpEventType.BURN):
         lines.append(f'- Debt: {debt_str} {event.iasset_name}')
+
+    if event.interest > 0 and event.type not in (CdpEventType.MINT, CdpEventType.BURN):
+        lines.append(f'- Accrued interest: {round_to_str(event.interest, 2)} {event.iasset_name}')
 
     if event.type not in (CdpEventType.FREEZE, CdpEventType.MERGE):
         lines.append(f'- New TVL: {event.tvl:,.0f} ADA')
@@ -221,21 +240,29 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
     new_with_owner = [d for d in new_list if d['owner'] is not None]
     new_without_owner = [d for d in new_list if d['owner'] is None]
 
-    # Create dictionaries for CDPs with owners
-    old_dict_with_owner = {(d['owner'], d['asset']): d for d in old_with_owner}
-    new_dict_with_owner = {(d['owner'], d['asset']): d for d in new_with_owner}
+    # Create dictionaries for CDPs with owners. v3 multi-asset collateral means
+    # a (owner, debt asset) pair can differ by collateral asset, so key on it too.
+    old_dict_with_owner = {
+        (d['owner'], d['asset'], d.get('collateral_asset', '')): d
+        for d in old_with_owner
+    }
+    new_dict_with_owner = {
+        (d['owner'], d['asset'], d.get('collateral_asset', '')): d
+        for d in new_with_owner
+    }
 
     # Create dictionaries for CDPs without owners, linking them based on collateralAmount, mintedAmount, and asset
     old_dict_without_owner = {
-        (d['collateralAmount'], d['mintedAmount'], d['asset']): d
+        (d['collateralAmount'], d['mintedAmount'], d['asset'], d.get('collateral_asset', '')): d
         for d in old_without_owner
     }
     new_dict_without_owner = {
-        (d['collateralAmount'], d['mintedAmount'], d['asset']): d
+        (d['collateralAmount'], d['mintedAmount'], d['asset'], d.get('collateral_asset', '')): d
         for d in new_without_owner
     }
 
-    tvl = sum([x['collateralAmount'] / 1e6 for x in new_list])
+    # TVL is reported in ADA, so only sum ADA-collateral CDPs.
+    tvl = sum([x['collateralAmount'] / 1e6 for x in new_list if not x.get('collateral_asset')])
 
     # Process CDPs with owners
     for new_key, new_cdp in new_dict_with_owner.items():
@@ -254,7 +281,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
             old_cdp = find_corresponding_cdp_with_owner(old_with_owner, new_cdp)
             if old_cdp is not None:
                 # FREEZE event
-                frozen[(old_cdp['owner'], old_cdp['asset'])] = True
+                frozen[(old_cdp['owner'], old_cdp['asset'], old_cdp.get('collateral_asset', ''))] = True
                 cdp_events.append(
                     create_cdp_event(
                         CdpEventType.FREEZE,
@@ -291,6 +318,8 @@ def create_cdp_event(event_type, cdp, tvl, new_collateral=None, tx_id=None):
         debt=cdp['mintedAmount'] / 1e6,
         owner=cdp['owner'],
         tx_id=tx_id if tx_id is not None else cdp['output_hash'],
+        collateral_asset=cdp.get('collateral_asset', ''),
+        interest=cdp_interest(cdp),
     )
 
 
@@ -320,6 +349,8 @@ def create_mint_burn_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
                     debt=debt_change,  # The amount minted/burned
                     owner=new_cdp['owner'],
                     tx_id=new_cdp['output_hash'],
+                    collateral_asset=new_cdp.get('collateral_asset', ''),
+                    interest=cdp_interest(new_cdp),
                 )
             )
         else:
@@ -339,6 +370,8 @@ def create_mint_burn_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
                     debt=old_cdp['mintedAmount'] / 1e6,
                     owner=None,
                     tx_id=old_cdp['output_hash'],
+                    collateral_asset=old_cdp.get('collateral_asset', ''),
+                    interest=cdp_interest(old_cdp),
                 )
             )
 
@@ -353,6 +386,8 @@ def create_mint_burn_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
                 debt=old_cdp['mintedAmount'] / 1e6,
                 owner=old_cdp['owner'],
                 tx_id=old_cdp['output_hash'],
+                collateral_asset=old_cdp.get('collateral_asset', ''),
+                interest=cdp_interest(old_cdp),
             )
         )
 
@@ -363,6 +398,7 @@ def find_corresponding_cdp_with_owner(cdp_list, cdp_without_owner):
             cdp['collateralAmount'] == cdp_without_owner['collateralAmount']
             and cdp['mintedAmount'] == cdp_without_owner['mintedAmount']
             and cdp['asset'] == cdp_without_owner['asset']
+            and cdp.get('collateral_asset', '') == cdp_without_owner.get('collateral_asset', '')
         ):
             return cdp
     return None

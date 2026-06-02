@@ -34,6 +34,7 @@ class RedemptionEvent:
     processing_fee: float
     tx_id: str
     redemption_type: str
+    reimbursement: float = 0  # v3 reimbursement_fee_lovelaces, in lovelaces.
 
 
 def discord_comment(post_data: dict):
@@ -102,6 +103,7 @@ def generate_redemption_events(old_list: list[str], new_list: list[dict]) -> lis
                     processing_fee=new_redemption['processing_fee_lovelaces'] / 1e6,
                     tx_id=new_redemption['tx_hash'],
                     redemption_type=new_redemption['type'],
+                    reimbursement=(new_redemption.get('reimbursement_fee_lovelaces') or 0) / 1e6,
                 )
             )
             old_list.append(new_redemption['tx_hash'])
@@ -142,12 +144,19 @@ def round_to_str(num: float, precision: int) -> str:
 def redemption_to_post_data(event: RedemptionEvent) -> dict:
     iasset_emoji = get_iasset_emoji(event.asset_name)
 
+    reimbursement_line = (
+        f'- Reimbursement fee: {round_to_str(event.reimbursement, 2)} ADA\n'
+        if event.reimbursement > 0
+        else ''
+    )
+
     msg = (
         f'{iasset_emoji} **{event.asset_name} {event.redemption_type} Redemption**\n'
         f'- Redeemed: {event.asset_redeemed:,.6f} {event.asset_name}\n'
         f'- ADA Redeemed: {round_to_str(event.ada_redeemed, 2)} ADA {get_fish_scale_emoji(event.ada_redeemed)}\n'
         f'- Interest Paid: {round_to_str(event.interest / 1e6, 2)} ADA\n'
-        f'- Processing fee: {round_to_str(event.processing_fee, 2)} ADA (to INDY Stakers)\n\n'
+        f'- Processing fee: {round_to_str(event.processing_fee, 2)} ADA (to INDY Stakers)\n'
+        f'{reimbursement_line}\n'
         f'[cexplorer.io](<https://cexplorer.io/tx/{event.tx_id}>) ✧ '
         f'[adastat.net](<https://adastat.net/transactions/{event.tx_id}>) ✧ '
         f'[cardanoscan.io](<https://cardanoscan.io/transaction/{event.tx_id}>) ✧ '

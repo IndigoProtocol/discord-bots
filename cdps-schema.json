@@ -31,6 +31,10 @@
           "minLength": 4,
           "maxLength": 4
       },
+      "collateral_asset": {
+        "type": "string",
+        "minLength": 0
+      },
       "collateralAmount": {
         "type": "integer",
         "minimum": 1
@@ -38,8 +42,32 @@
       "mintedAmount": {
         "type": "integer",
         "minimum": 0
+      },
+      "interest_iasset_amount": {
+        "type": ["integer", "null"]
+      },
+      "interest_last_updated": {
+        "type": ["integer", "null"]
+      },
+      "fee_lovelaces_treasury": {
+        "type": ["integer", "null"]
+      },
+      "fee_lovelaces_indy_stakers": {
+        "type": ["integer", "null"]
+      },
+      "frozen_cdp_accumulated_lovelaces_indy_stakers": {
+        "type": ["integer", "null"]
+      },
+      "frozen_cdp_accumulated_lovelaces_treasury": {
+        "type": ["integer", "null"]
+      },
+      "active_interest_tracking_unitary_interest_snapshot": {
+        "type": ["string", "null"]
+      },
+      "active_interest_tracking_last_settled": {
+        "type": ["integer", "null"]
       }
     },
-    "required": ["output_hash", "output_index", "owner", "asset", "collateralAmount", "mintedAmount"]
+    "required": ["output_hash", "output_index", "owner", "asset", "collateral_asset", "collateralAmount", "mintedAmount"]
   }
 }

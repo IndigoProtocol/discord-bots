@@ -119,12 +119,13 @@ def round_to_str(num: float, precision: int) -> str:
 def liquidation_to_post_data(lq: dict) -> dict:
     iasset = lq["asset"]
     iasset_burned = float(lq['iasset_burned']) / 1_000_000
-    collateral_ada = float(lq['collateral_absorbed']) / 1_000_000
-    oracle_price = float(lq['oracle_price'])
+    # v3 prices collateral in USD. `collateral_absorbed` is in the collateral
+    # asset's smallest unit (lovelaces for ADA, the only collateral so far).
+    collateral_amount = float(lq['collateral_absorbed']) / 1_000_000
+    collateral_usd_price = float(lq['collateral_asset_usd_price'])
+    collateral_usd = collateral_amount * collateral_usd_price
 
     if iasset == 'iUSD':
-        price_main_prec = 3
-        price_inverse_prec = 3
         mcr = 1.1
         if iasset_burned >= 1000:
             iasset_burned_str = round_to_str(iasset_burned, 0)
@@ -133,8 +134,6 @@ def liquidation_to_post_data(lq: dict) -> dict:
         else:
             iasset_burned_str = f'{iasset_burned}'
     elif iasset in ('iBTC', 'iETH', 'iSOL'):
-        price_main_prec = 8
-        price_inverse_prec = 0
         mcr = 1.1
         if iasset_burned < 0.1:
             iasset_burned_str = round_to_str(iasset_burned, 6)
@@ -143,20 +142,16 @@ def liquidation_to_post_data(lq: dict) -> dict:
     else:
         raise AnalyticsApiException(f'Unexpected iasset "{iasset}"')
 
-    collateral_nominal = collateral_ada / mcr
-    # indy_staker_rewards = 0.02 * collateral_ada
-    # sp_staker_rewards = collateral_ada - indy_staker_rewards - collateral_nominal
-    sp_staker_rewards = collateral_ada - collateral_nominal
-    sp_staker_pct = sp_staker_rewards / collateral_ada * 100
+    debt_usd = collateral_usd / mcr
+    sp_staker_rewards = collateral_usd - debt_usd
+    sp_staker_pct = sp_staker_rewards / collateral_usd * 100 if collateral_usd else 0
 
     msg = (
         f'- Burned: {get_iasset_emoji(iasset)}**{iasset_burned_str} {iasset}**\n'
-        f'- Collateral: {get_fish_scale_emoji(collateral_ada)} **{round_to_str(collateral_ada, 2)} ADA**\n'
-        f'  - Debt: {round_to_str(collateral_nominal, 2)} ADA\n'
-        # f'  - 2% to INDY stakers: {round_to_str(indy_staker_rewards, 2)} ADA\n'
-        f'  - {round_to_str(sp_staker_pct, 1)}% to {iasset} SP stakers: {round_to_str(sp_staker_rewards, 2)} ADA\n'
-        f'- Oracle price: {oracle_price:,.{price_inverse_prec}f} ADA/{iasset} '
-        f'({1 / oracle_price:,.{price_main_prec}f} {iasset}/ADA)\n'
+        f'- Collateral: {get_fish_scale_emoji(collateral_usd)} **${round_to_str(collateral_usd, 2)}**\n'
+        f'  - Debt: ${round_to_str(debt_usd, 2)}\n'
+        f'  - {round_to_str(sp_staker_pct, 1)}% to {iasset} SP stakers: ${round_to_str(sp_staker_rewards, 2)}\n'
+        f'- Collateral asset price: ${round_to_str(collateral_usd_price, 6)}\n'
         f'[cexplorer.io](<https://cexplorer.io/tx/{lq["output_hash"]}>)  ✧  '
         f'[adastat.net](<https://adastat.net/transactions/{lq["output_hash"]}>)  ✧  '
         f'[cardanoscan.io](<https://cardanoscan.io/transaction/{lq["output_hash"]}>)  ✧  '
@@ -167,7 +162,7 @@ def liquidation_to_post_data(lq: dict) -> dict:
         'content': msg,
     }
 
-    if collateral_ada >= 100_000:
+    if collateral_usd >= 100_000:
         post_data['embeds'] = [
             {
                 'image': {
@@ -181,9 +176,9 @@ def liquidation_to_post_data(lq: dict) -> dict:
 
 
 def sanity_check(liquidation: dict) -> bool:
-    # oracle_price and ada_price from the liquidation dict can be temporarily
-    # null. There's some weird race condition going on in the Analytics API.
-    return bool(liquidation['oracle_price']) and bool(liquidation['ada_price'])
+    # collateral_asset_usd_price can be temporarily null while the Analytics API
+    # settles a race condition; skip posting until it's populated.
+    return bool(liquidation.get('collateral_asset_usd_price'))
 
 
 def check_liquidations(last_processed: dict) -> dict:
