@@ -47,10 +47,28 @@ class CdpEvent:
     interest: float = 0  # v3 accrued interest in the iAsset.
 
 
+# Known non-ADA collateral assets (v3 multi-asset). The Analytics API returns
+# `collateral_asset` as the asset Unit (policy id + hex asset name). Empty
+# string means ADA. Format/mapping confirmed with CTO Cody Butz (2026-06-02).
+COLLATERAL_ASSET_LABELS = {
+    '0691b2fecca1ac4f53cb6dfb00b7013e561d1f34403b957cbb5af1fa.4e49474854': 'NIGHT',
+    '1f3aec8bfe7ea4fe14c5f121e2a92e301afe414147860d557cac7e34.5553444378': 'USDCx',
+}
+
+
 def collateral_label(collateral_asset: str) -> str:
-    # v3 CDPs carry a collateral_asset; empty string means ADA. Format of the
-    # ticker is unconfirmed (no non-ADA CDP exists yet), so render it raw.
-    return collateral_asset or 'ADA'
+    # Empty string means ADA. Otherwise map the known unit to a ticker,
+    # matching regardless of whether the unit uses a '.' separator; fall back
+    # to the raw unit string for assets we don't have a label for yet.
+    if not collateral_asset:
+        return 'ADA'
+    if collateral_asset in COLLATERAL_ASSET_LABELS:
+        return COLLATERAL_ASSET_LABELS[collateral_asset]
+    normalized = collateral_asset.replace('.', '')
+    for unit, label in COLLATERAL_ASSET_LABELS.items():
+        if unit.replace('.', '') == normalized:
+            return label
+    return collateral_asset
 
 
 def cdp_interest(cdp: dict) -> float:
