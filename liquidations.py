@@ -116,6 +116,61 @@ def round_to_str(num: float, precision: int) -> str:
         return str(rounded).rstrip('0').rstrip('.')
 
 
+# Fiat-pegged iAssets trade as large whole-number amounts; crypto-pegged ones
+# trade as small fractional amounts. This only affects how `iasset_burned` is
+# formatted for display, not any math.
+FIAT_IASSETS = frozenset({'iUSD', 'iEUR', 'iJPY'})
+
+# Per-iAsset liquidation ratio (a.k.a. MCR) used to split absorbed collateral
+# into debt repaid vs. surplus paid to Stability Pool stakers
+# (`debt = collateral / ratio`). Governance currently sets every live iAsset to
+# 110% (1.1); see the Liquidation Ratio governance polls. Centralized here so a
+# ratio change is a one-line edit, and so an iAsset the protocol adds later
+# doesn't silently use a wrong value.
+LIQUIDATION_RATIO = {
+    'iUSD': 1.1,
+    'iEUR': 1.1,
+    'iJPY': 1.1,
+    'iBTC': 1.1,
+    'iETH': 1.1,
+    'iSOL': 1.1,
+}
+
+# Fallback for an iAsset not yet in LIQUIDATION_RATIO. 1.1 matches every live
+# iAsset today, so a newly-launched iAsset renders sanely until its real ratio
+# is added above. We log a warning rather than crash the bot.
+DEFAULT_LIQUIDATION_RATIO = 1.1
+
+
+def liquidation_ratio(iasset: str) -> float:
+    '''Liquidation ratio (MCR) for an iAsset, with a safe default + warning.'''
+    if iasset in LIQUIDATION_RATIO:
+        return LIQUIDATION_RATIO[iasset]
+    logging.getLogger('liquidations').warning(
+        f'Unknown iAsset "{iasset}"; using default liquidation ratio '
+        f'{DEFAULT_LIQUIDATION_RATIO}. Add it to LIQUIDATION_RATIO.'
+    )
+    return DEFAULT_LIQUIDATION_RATIO
+
+
+def format_iasset_amount(iasset: str, amount: float) -> str:
+    '''Human-friendly amount string, tuned to fiat vs. crypto iAsset magnitudes.'''
+    if iasset in FIAT_IASSETS:
+        # Large whole-number amounts (e.g. 12,345 iUSD).
+        if amount >= 1000:
+            return round_to_str(amount, 0)
+        elif amount >= 1:
+            return round_to_str(amount, 2)
+        else:
+            return f'{amount}'
+    else:
+        # Crypto-pegged: small fractional amounts (e.g. 0.0123 iBTC).
+        if amount < 0.1:
+            return round_to_str(amount, 6)
+        else:
+            return f'{amount}'
+
+
 def liquidation_to_post_data(lq: dict) -> dict:
     iasset = lq["asset"]
     iasset_burned = float(lq['iasset_burned']) / 1_000_000
@@ -125,23 +180,8 @@ def liquidation_to_post_data(lq: dict) -> dict:
     collateral_usd_price = float(lq['collateral_asset_usd_price'])
     collateral_usd = collateral_amount * collateral_usd_price
 
-    if iasset in ('iUSD', 'iEUR', 'iJPY'):
-        # Fiat-pegged stablecoins: large whole-number amounts.
-        mcr = 1.1
-        if iasset_burned >= 1000:
-            iasset_burned_str = round_to_str(iasset_burned, 0)
-        elif iasset_burned >= 1:
-            iasset_burned_str = round_to_str(iasset_burned, 2)
-        else:
-            iasset_burned_str = f'{iasset_burned}'
-    elif iasset in ('iBTC', 'iETH', 'iSOL'):
-        mcr = 1.1
-        if iasset_burned < 0.1:
-            iasset_burned_str = round_to_str(iasset_burned, 6)
-        else:
-            iasset_burned_str = f'{iasset_burned}'
-    else:
-        raise AnalyticsApiException(f'Unexpected iasset "{iasset}"')
+    mcr = liquidation_ratio(iasset)
+    iasset_burned_str = format_iasset_amount(iasset, iasset_burned)
 
     debt_usd = collateral_usd / mcr
     sp_staker_rewards = collateral_usd - debt_usd
