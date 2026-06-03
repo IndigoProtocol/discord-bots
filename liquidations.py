@@ -125,7 +125,8 @@ def liquidation_to_post_data(lq: dict) -> dict:
     collateral_usd_price = float(lq['collateral_asset_usd_price'])
     collateral_usd = collateral_amount * collateral_usd_price
 
-    if iasset == 'iUSD':
+    if iasset in ('iUSD', 'iEUR', 'iJPY'):
+        # Fiat-pegged stablecoins: large whole-number amounts.
         mcr = 1.1
         if iasset_burned >= 1000:
             iasset_burned_str = round_to_str(iasset_burned, 0)
