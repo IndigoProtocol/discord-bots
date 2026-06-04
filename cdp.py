@@ -27,8 +27,10 @@ WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 class CdpEventType(Enum):
     OPEN = auto()
     CLOSE = auto()
-    MINT = auto()    # Adding more debt to existing position
-    BURN = auto()    # Reducing debt from existing position
+    MINT = auto()      # Adding more debt to existing position
+    BURN = auto()      # Reducing debt from existing position
+    DEPOSIT = auto()   # v3: collateral added to an existing position
+    WITHDRAW = auto()  # v3: collateral removed from an existing position
     FREEZE = auto()
     MERGE = auto()
 
@@ -45,6 +47,7 @@ class CdpEvent:
     tx_id: str | None  # Closed account's final tx_id can't be discerned from API.
     collateral_asset: str = ''  # v3 multi-asset collateral; '' means ADA.
     interest: float = 0  # v3 accrued interest in the iAsset.
+    debt_change: float = 0  # Signed debt delta accompanying a deposit/withdraw.
 
 
 # Known non-ADA collateral assets (v3 multi-asset). The Analytics API returns
@@ -73,6 +76,76 @@ def collateral_label(collateral_asset: str) -> str:
 
 def cdp_interest(cdp: dict) -> float:
     return (cdp.get('interest_iasset_amount') or 0) / 1e6
+
+
+# --- USD valuation for mint/burn thresholds ---------------------------------
+# Mint/burn events are gated by USD notional (not raw iAsset amount), so the
+# same threshold works for iUSD and for iBTC/iETH (where 1 unit is worth a lot).
+#
+# iUSD is hard-pegged to $1, so we value it directly (no oracle needed) — and
+# it's the dominant asset driving the burn spam. Other iAssets are valued via
+# the Indigo oracle (`/api/asset-prices`, prices denominated in ADA) using
+# iUSD's ADA price as the ADA->USD anchor: USD(asset) = ada_price(asset) *
+# (1 / ada_price(iUSD)). The anchor and per-asset prices are cached, so a
+# transient missing oracle row doesn't disable gating.
+MIN_DEBT_EVENT_USD = 1000.0  # Post mint/burn only at >= this USD notional.
+
+_usd_price_cache: dict[str, float] = {'iUSD': 1.0}
+_ada_usd_cache: float | None = None
+
+
+def fetch_oracle_ada_prices() -> dict[str, float]:
+    '''iAsset prices denominated in ADA, from the Indigo oracle.'''
+    url = 'https://analytics.indigoprotocol.io/api/asset-prices'
+    f = urllib.request.urlopen(urllib.request.Request(url), timeout=15)
+    rows = json.loads(f.read().decode('utf-8'))
+    # ADA-collateral rows only (collateral_asset == ''); price is ADA per iAsset.
+    return {
+        r['asset']: float(r['price'])
+        for r in rows
+        if not r.get('collateral_asset') and r.get('price')
+    }
+
+
+def refresh_usd_prices() -> None:
+    '''Refresh cached iAsset USD prices; keep last-good values on failure.'''
+    global _ada_usd_cache
+    try:
+        ada_price = fetch_oracle_ada_prices()
+    except Exception as e:
+        logger.warning(f'Could not refresh iAsset prices: {e}')
+        return
+
+    # ADA->USD anchor from iUSD's ADA price (iUSD == $1). May be absent in a
+    # given oracle snapshot; if so we keep the previously cached anchor.
+    iusd_ada = ada_price.get('iUSD')
+    if iusd_ada:
+        _ada_usd_cache = 1.0 / iusd_ada
+
+    _usd_price_cache['iUSD'] = 1.0  # Hard peg, always known.
+    if _ada_usd_cache is not None:
+        for asset, p in ada_price.items():
+            _usd_price_cache[asset] = p * _ada_usd_cache
+
+
+def iasset_usd_value(asset: str, amount: float) -> float | None:
+    '''USD value of `amount` of `asset`, or None if its price is unknown.'''
+    price = _usd_price_cache.get(asset)
+    if price is None:
+        return None
+    return amount * price
+
+
+def debt_event_meets_threshold(event: 'CdpEvent') -> bool:
+    '''Whether a mint/burn is large enough (in USD) to post.
+
+    Fails open: if the price is unknown (oracle row missing / feed down) we
+    post rather than risk hiding a large event.
+    '''
+    usd = iasset_usd_value(event.iasset_name, event.debt)
+    if usd is None:
+        return True
+    return usd >= MIN_DEBT_EVENT_USD
 
 
 def discord_comment(msg: str):
@@ -147,6 +220,10 @@ def event_to_discord_comment(event: CdpEvent) -> str:
         lines.append(f'**{iasset_emoji} {event.iasset_name} minted** 🪙')
     elif event.type == CdpEventType.BURN:
         lines.append(f'**{iasset_emoji} {event.iasset_name} burned** 🔥')
+    elif event.type == CdpEventType.DEPOSIT:
+        lines.append(f'**{iasset_emoji} Collateral deposited** 📥')
+    elif event.type == CdpEventType.WITHDRAW:
+        lines.append(f'**{iasset_emoji} Collateral withdrawn** 📤')
     elif event.type == CdpEventType.FREEZE:
         lines.append(f'**{iasset_emoji} CDP frozen** ❄️')
     elif event.type == CdpEventType.MERGE:
@@ -167,7 +244,7 @@ def event_to_discord_comment(event: CdpEvent) -> str:
     else:
         # For other events, show the collateral amount. Fish-scale emoji is
         # ADA-tuned, so only show it for ADA collateral.
-        sign = '+' if event.type == CdpEventType.OPEN else '-'
+        sign = '+' if event.type in (CdpEventType.OPEN, CdpEventType.DEPOSIT) else '-'
         fish = get_fish_scale_emoji(event.ada) if not event.collateral_asset else ''
         lines.append(f'- {sign}{event.ada:,.0f} {coll_label} {fish}'.rstrip())
 
@@ -180,6 +257,15 @@ def event_to_discord_comment(event: CdpEvent) -> str:
 
     if event.type not in (CdpEventType.MERGE, CdpEventType.MINT, CdpEventType.BURN):
         lines.append(f'- Debt: {debt_str} {event.iasset_name}')
+
+    # On a deposit/withdraw, the debt may have shifted too (e.g. interest
+    # settled in the same tx); surface it so the collateral-primary framing
+    # doesn't hide it. Skip negligible changes that round to zero.
+    if event.type in (CdpEventType.DEPOSIT, CdpEventType.WITHDRAW):
+        dc_str = round_to_str(abs(event.debt_change), 6)
+        if float(dc_str.replace(',', '')) != 0:
+            dc_sign = '+' if event.debt_change > 0 else '-'
+            lines.append(f'- Debt change: {dc_sign}{dc_str} {event.iasset_name}')
 
     if event.interest > 0 and event.type not in (CdpEventType.MINT, CdpEventType.BURN):
         lines.append(f'- Accrued interest: {round_to_str(event.interest, 2)} {event.iasset_name}')
@@ -289,7 +375,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
             cdp_events.append(create_cdp_event(CdpEventType.OPEN, new_cdp, tvl))
         else:
             old_cdp = old_dict_with_owner[new_key]
-            create_mint_burn_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events)
+            create_adjustment_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events)
 
     frozen: dict[tuple[str, str], bool] = {}
 
@@ -341,39 +427,58 @@ def create_cdp_event(event_type, cdp, tvl, new_collateral=None, tx_id=None):
     )
 
 
-def create_mint_burn_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
-    # Check for debt changes (mint/burn)
-    if new_cdp['mintedAmount'] != old_cdp['mintedAmount']:
-        debt_change = abs(new_cdp['mintedAmount'] - old_cdp['mintedAmount']) / 1e6
-        
-        # Debug logging for debt changes
-        logger.debug(f"Debt change detected: {old_cdp['mintedAmount']/1e6:.6f} -> {new_cdp['mintedAmount']/1e6:.6f} ({debt_change:.6f} {new_cdp['asset']})")
-        
-        # Create mint/burn events for all amounts
-        if debt_change > 0:
-            event_type = (
-                CdpEventType.MINT
-                if new_cdp['mintedAmount'] > old_cdp['mintedAmount']
-                else CdpEventType.BURN
+def create_adjustment_or_freeze_event(old_cdp, new_cdp, tvl, cdp_events):
+    # Signed deltas between the two snapshots.
+    debt_change = (new_cdp['mintedAmount'] - old_cdp['mintedAmount']) / 1e6
+    coll_change = (new_cdp['collateralAmount'] - old_cdp['collateralAmount']) / 1e6
+
+    if coll_change != 0:
+        # Collateral moves take priority over debt changes (per CTO Cody Butz):
+        # a tx that moves collateral is a Deposit/Withdraw even if interest
+        # nudged the debt in the same tx. The debt delta is carried along as a
+        # secondary line via `debt_change`.
+        event_type = (
+            CdpEventType.DEPOSIT if coll_change > 0 else CdpEventType.WITHDRAW
+        )
+        logger.info(
+            f"Creating {event_type.name} event: {abs(coll_change):.2f} collateral "
+            f"(tx: {new_cdp['output_hash'][:8]}...)"
+        )
+        cdp_events.append(
+            CdpEvent(
+                type=event_type,
+                ada=abs(coll_change),  # Collateral delta (shown in the message).
+                tvl=tvl,
+                new_collateral=new_cdp['collateralAmount'] / 1e6,
+                iasset_name=new_cdp['asset'],
+                debt=new_cdp['mintedAmount'] / 1e6,  # Current total debt.
+                owner=new_cdp['owner'],
+                tx_id=new_cdp['output_hash'],
+                collateral_asset=new_cdp.get('collateral_asset', ''),
+                interest=cdp_interest(new_cdp),
+                debt_change=debt_change,
             )
-            logger.info(f"Creating {event_type.name} event: {debt_change:.2f} {new_cdp['asset']} (tx: {new_cdp['output_hash'][:8]}...)")
-            cdp_events.append(
-                CdpEvent(
-                    type=event_type,
-                    ada=0,  # No ADA amount for pure mint/burn
-                    tvl=tvl,
-                    new_collateral=new_cdp['collateralAmount'] / 1e6,
-                    iasset_name=new_cdp['asset'],
-                    debt=debt_change,  # The amount minted/burned
-                    owner=new_cdp['owner'],
-                    tx_id=new_cdp['output_hash'],
-                    collateral_asset=new_cdp.get('collateral_asset', ''),
-                    interest=cdp_interest(new_cdp),
-                )
+        )
+
+    elif debt_change != 0:
+        # Pure debt change with no collateral move: mint or burn.
+        event_type = CdpEventType.MINT if debt_change > 0 else CdpEventType.BURN
+        logger.info(f"Creating {event_type.name} event: {abs(debt_change):.2f} {new_cdp['asset']} (tx: {new_cdp['output_hash'][:8]}...)")
+        cdp_events.append(
+            CdpEvent(
+                type=event_type,
+                ada=0,  # No collateral amount for pure mint/burn.
+                tvl=tvl,
+                new_collateral=new_cdp['collateralAmount'] / 1e6,
+                iasset_name=new_cdp['asset'],
+                debt=abs(debt_change),  # The amount minted/burned.
+                owner=new_cdp['owner'],
+                tx_id=new_cdp['output_hash'],
+                collateral_asset=new_cdp.get('collateral_asset', ''),
+                interest=cdp_interest(new_cdp),
             )
-        else:
-            logger.debug(f"No debt change detected: {debt_change:.2f} {new_cdp['asset']}")
-    
+        )
+
     # Check for freeze events
     elif new_cdp['owner'] is None and old_cdp['owner'] is not None:
         # MERGE event
@@ -475,6 +580,7 @@ if __name__ == '__main__':
     while True:
         try:
             time.sleep(30)
+            refresh_usd_prices()  # Keep iAsset USD prices fresh for thresholds.
             cdps = fetch_cdps(log_dir)
             fetch_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
             events = generate_cdp_events(prev_cdps, cdps)
@@ -503,15 +609,16 @@ if __name__ == '__main__':
                 else:
                     logger.info(f'Detected {event.type.name} event: {event.ada:.0f} ADA (tx: {event.tx_id[:8] if event.tx_id else "None"}...)')
 
-                # Post all burn events, mint events >= 1k iAsset, or other events >= 25k ADA  
-                should_post = (
-                    (event.type == CdpEventType.BURN) or
-                    (event.type == CdpEventType.MINT and event.debt >= 1000) or
-                    (event.type not in (CdpEventType.MINT, CdpEventType.BURN) and event.ada >= 25_000)
-                )
-                
+                # Mint/burn gated by USD notional (>= MIN_DEBT_EVENT_USD); all
+                # other events (open/close/deposit/withdraw/freeze/merge) gated
+                # by >= 25k ADA collateral, as before.
+                if event.type in (CdpEventType.MINT, CdpEventType.BURN):
+                    should_post = debt_event_meets_threshold(event)
+                else:
+                    should_post = event.ada >= 25_000
+
                 logger.debug(f'Event posting check: type={event.type.name}, debt={event.debt:.6f}, ada={event.ada:.0f}, should_post={should_post}')
-                
+
                 if should_post:
                     if event.type in (CdpEventType.MINT, CdpEventType.BURN):
                         logger.info(f'Discord commenting for {event.debt:.6f} {event.iasset_name} {event.type.name.lower()} event')
@@ -521,8 +628,10 @@ if __name__ == '__main__':
                     discord_comment(msg)
                     time.sleep(2)
                 else:
-                    if event.type == CdpEventType.MINT:
-                        logger.info(f'Event not posted - below threshold: {event.type.name} {event.debt:.6f} {event.iasset_name} (need >= 1000)')
+                    if event.type in (CdpEventType.MINT, CdpEventType.BURN):
+                        usd = iasset_usd_value(event.iasset_name, event.debt)
+                        usd_str = f'${usd:,.0f}' if usd is not None else 'unknown $'
+                        logger.info(f'Event not posted - below threshold: {event.type.name} {event.debt:.6f} {event.iasset_name} ({usd_str}, need >= ${MIN_DEBT_EVENT_USD:,.0f})')
                     else:
                         logger.info(f'Event not posted - below threshold: {event.type.name} {event.ada:.0f} ADA (need >= 25k)')
 
