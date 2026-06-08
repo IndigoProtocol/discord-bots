@@ -88,7 +88,7 @@ def cdp_interest(cdp: dict) -> float:
 # iUSD's ADA price as the ADA->USD anchor: USD(asset) = ada_price(asset) *
 # (1 / ada_price(iUSD)). The anchor and per-asset prices are cached, so a
 # transient missing oracle row doesn't disable gating.
-MIN_DEBT_EVENT_USD = 1000.0  # Post mint/burn only at >= this USD notional.
+MIN_DEBT_EVENT_USD = 50.0  # Post mint/burn only at >= this USD notional.
 
 _usd_price_cache: dict[str, float] = {'iUSD': 1.0}
 _ada_usd_cache: float | None = None
