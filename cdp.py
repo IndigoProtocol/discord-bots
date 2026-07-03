@@ -335,6 +335,46 @@ def validate_cdps_json(json_response):
         return e
 
 
+def tx_touches_multiple_owners(events: list[CdpEvent]) -> bool:
+    '''A normal user tx should not mutate multiple owners' CDPs.'''
+    owners = {event.owner for event in events if event.owner}
+    return len(owners) > 1
+
+
+def filter_protocol_interest_collection_events(events: list[CdpEvent]) -> list[CdpEvent]:
+    events_by_tx: dict[str | None, list[CdpEvent]] = {}
+    for event in events:
+        events_by_tx.setdefault(event.tx_id, []).append(event)
+
+    filtered_events: list[CdpEvent] = []
+    for tx_id, tx_events in events_by_tx.items():
+        if not tx_touches_multiple_owners(tx_events):
+            filtered_events.extend(tx_events)
+            continue
+
+        owners_count = len({event.owner for event in tx_events if event.owner})
+        suppressed = [
+            event for event in tx_events
+            if event.type in (CdpEventType.MINT, CdpEventType.BURN)
+        ]
+        kept = [
+            event for event in tx_events
+            if event.type not in (CdpEventType.MINT, CdpEventType.BURN)
+        ]
+
+        if suppressed:
+            logger.info(
+                'Suppressing %d protocol-style debt-only events from tx %s affecting %d owners',
+                len(suppressed),
+                (tx_id[:8] + '...') if tx_id else 'None',
+                owners_count,
+            )
+
+        filtered_events.extend(kept)
+
+    return filtered_events
+
+
 def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpEvent]:
     cdp_events = []
 
@@ -407,7 +447,7 @@ def generate_cdp_events(old_list: list[dict], new_list: list[dict]) -> list[CdpE
                 )
             )
 
-    return cdp_events
+    return filter_protocol_interest_collection_events(cdp_events)
 
 
 def create_cdp_event(event_type, cdp, tvl, new_collateral=None, tx_id=None):
