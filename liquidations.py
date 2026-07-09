@@ -43,7 +43,7 @@ def discord_comment(post_data: dict):
 
 
 def fetch_liquidations(after_unix_time: int | None = None):
-    url = 'https://analytics.indigoprotocol.io/api/liquidations'
+    url = 'https://analytics.indigoprotocol.io/api/v3/liquidations'
     if after_unix_time:
         params = {'after': after_unix_time}
         query_string = urllib.parse.urlencode(params)
