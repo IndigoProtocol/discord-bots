@@ -82,50 +82,37 @@ def cdp_interest(cdp: dict) -> float:
 # Mint/burn events are gated by USD notional (not raw iAsset amount), so the
 # same threshold works for iUSD and for iBTC/iETH (where 1 unit is worth a lot).
 #
-# iUSD is hard-pegged to $1, so we value it directly (no oracle needed) — and
-# it's the dominant asset driving the burn spam. Other iAssets are valued via
-# the Indigo oracle (`/api/asset-prices`, prices denominated in ADA) using
-# iUSD's ADA price as the ADA->USD anchor: USD(asset) = ada_price(asset) *
-# (1 / ada_price(iUSD)). The anchor and per-asset prices are cached, so a
-# transient missing oracle row doesn't disable gating.
+# The v3 oracle endpoint (`/api/v3/assets/usd-prices`) returns iAsset prices
+# already denominated in USD, so we use them directly. Prices are cached so a
+# transient feed failure doesn't disable gating; iUSD is seeded at its $1 peg
+# so gating works on the very first cycle before any successful fetch.
 MIN_DEBT_EVENT_USD = 50.0  # Post mint/burn only at >= this USD notional.
 
 _usd_price_cache: dict[str, float] = {'iUSD': 1.0}
-_ada_usd_cache: float | None = None
 
 
-def fetch_oracle_ada_prices() -> dict[str, float]:
-    '''iAsset prices denominated in ADA, from the Indigo oracle.'''
-    url = 'https://analytics.indigoprotocol.io/api/asset-prices'
-    f = urllib.request.urlopen(urllib.request.Request(url), timeout=15)
+def fetch_usd_prices(assets: list[str]) -> dict[str, float]:
+    '''iAsset USD prices from the v3 oracle (already denominated in USD).'''
+    url = 'https://analytics.indigoprotocol.io/api/v3/assets/usd-prices'
+    data = json.dumps({'assets': assets}).encode('utf-8')
+    req = urllib.request.Request(
+        url, data=data, headers={'Content-Type': 'application/json'}, method='POST'
+    )
+    f = urllib.request.urlopen(req, timeout=15)
     rows = json.loads(f.read().decode('utf-8'))
-    # ADA-collateral rows only (collateral_asset == ''); price is ADA per iAsset.
-    return {
-        r['asset']: float(r['price'])
-        for r in rows
-        if not r.get('collateral_asset') and r.get('price')
-    }
+    return {r['asset']: float(r['price']) for r in rows if r.get('price') is not None}
 
 
-def refresh_usd_prices() -> None:
-    '''Refresh cached iAsset USD prices; keep last-good values on failure.'''
-    global _ada_usd_cache
+def refresh_usd_prices(assets: set[str]) -> None:
+    '''Refresh cached USD prices for `assets`; keep last-good values on failure.'''
+    if not assets:
+        return
     try:
-        ada_price = fetch_oracle_ada_prices()
+        prices = fetch_usd_prices(sorted(assets))
     except Exception as e:
         logger.warning(f'Could not refresh iAsset prices: {e}')
         return
-
-    # ADA->USD anchor from iUSD's ADA price (iUSD == $1). May be absent in a
-    # given oracle snapshot; if so we keep the previously cached anchor.
-    iusd_ada = ada_price.get('iUSD')
-    if iusd_ada:
-        _ada_usd_cache = 1.0 / iusd_ada
-
-    _usd_price_cache['iUSD'] = 1.0  # Hard peg, always known.
-    if _ada_usd_cache is not None:
-        for asset, p in ada_price.items():
-            _usd_price_cache[asset] = p * _ada_usd_cache
+    _usd_price_cache.update(prices)
 
 
 def iasset_usd_value(asset: str, amount: float) -> float | None:
@@ -289,8 +276,35 @@ def event_to_discord_comment(event: CdpEvent) -> str:
     return '\n'.join(lines)
 
 
+# v3 renamed the CDP endpoint (`/api/cdps`) to `/api/v3/loans` and switched its
+# records to camelCase, renaming a few fields. We normalize each v3 record back
+# to the legacy shape at the fetch boundary so the rest of the bot (event
+# detection, schema validation) is unchanged. Keys not listed here (`asset`,
+# `owner`) already match.
+_LOAN_FIELD_MAP = {
+    'collateral': 'collateralAmount',
+    'minted': 'mintedAmount',
+    'collateralAsset': 'collateral_asset',
+    'outputHash': 'output_hash',
+    'outputIndex': 'output_index',
+    'interestIassetAmount': 'interest_iasset_amount',
+    'interestLastUpdated': 'interest_last_updated',
+    'feeLovelacesTreasury': 'fee_lovelaces_treasury',
+    'feeLovelacesIndyStakers': 'fee_lovelaces_indy_stakers',
+    'frozenCdpAccumulatedLovelacesIndyStakers': 'frozen_cdp_accumulated_lovelaces_indy_stakers',
+    'frozenCdpAccumulatedLovelacesTreasury': 'frozen_cdp_accumulated_lovelaces_treasury',
+    'activeInterestTrackingLastSettled': 'active_interest_tracking_last_settled',
+    'activeInterestTrackingUnitaryInterestSnapshot': 'active_interest_tracking_unitary_interest_snapshot',
+}
+
+
+def normalize_loan(loan: dict) -> dict:
+    '''Map a v3 `/loans` record to the legacy `/cdps` field names.'''
+    return {_LOAN_FIELD_MAP.get(k, k): v for k, v in loan.items()}
+
+
 def fetch_cdps(log_dir: str, at_unix_time: float | None = None):
-    url = 'https://analytics.indigoprotocol.io/api/cdps'
+    url = 'https://analytics.indigoprotocol.io/api/v3/loans'
     headers = {'Content-Type': 'application/json'}
 
     if at_unix_time is not None:
@@ -302,7 +316,7 @@ def fetch_cdps(log_dir: str, at_unix_time: float | None = None):
 
     f = urllib.request.urlopen(req, timeout=15)
     response = f.read().decode('utf-8')
-    json_response = json.loads(response)
+    json_response = [normalize_loan(loan) for loan in json.loads(response)]
 
     if at_unix_time is not None:
         dt = datetime.datetime.fromtimestamp(at_unix_time)
@@ -620,9 +634,14 @@ if __name__ == '__main__':
     while True:
         try:
             time.sleep(30)
-            refresh_usd_prices()  # Keep iAsset USD prices fresh for thresholds.
             cdps = fetch_cdps(log_dir)
             fetch_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+            # Keep USD prices fresh for thresholds; value the assets present in
+            # this snapshot plus any from the previous one (so a closed CDP's
+            # asset is still priced when its event is gated).
+            refresh_usd_prices(
+                {c['asset'] for c in cdps} | {c['asset'] for c in prev_cdps}
+            )
             events = generate_cdp_events(prev_cdps, cdps)
 
             if len(events) > 0:
