@@ -43,7 +43,7 @@ def discord_comment(post_data: dict):
 
 
 def fetch_liquidations(after_unix_time: int | None = None):
-    url = 'https://analytics.indigoprotocol.io/api/liquidations'
+    url = 'https://analytics.indigoprotocol.io/api/v3/liquidations'
     if after_unix_time:
         params = {'after': after_unix_time}
         query_string = urllib.parse.urlencode(params)
@@ -121,36 +121,15 @@ def round_to_str(num: float, precision: int) -> str:
 # formatted for display, not any math.
 FIAT_IASSETS = frozenset({'iUSD', 'iEUR', 'iJPY'})
 
-# Per-iAsset liquidation ratio (a.k.a. MCR) used to split absorbed collateral
-# into debt repaid vs. surplus paid to Stability Pool stakers
-# (`debt = collateral / ratio`). Governance currently sets every live iAsset to
-# 110% (1.1); see the Liquidation Ratio governance polls. Centralized here so a
-# ratio change is a one-line edit, and so an iAsset the protocol adds later
-# doesn't silently use a wrong value.
-LIQUIDATION_RATIO = {
-    'iUSD': 1.1,
-    'iEUR': 1.1,
-    'iJPY': 1.1,
-    'iBTC': 1.1,
-    'iETH': 1.1,
-    'iSOL': 1.1,
-}
 
-# Fallback for an iAsset not yet in LIQUIDATION_RATIO. 1.1 matches every live
-# iAsset today, so a newly-launched iAsset renders sanely until its real ratio
-# is added above. We log a warning rather than crash the bot.
-DEFAULT_LIQUIDATION_RATIO = 1.1
-
-
-def liquidation_ratio(iasset: str) -> float:
-    '''Liquidation ratio (MCR) for an iAsset, with a safe default + warning.'''
-    if iasset in LIQUIDATION_RATIO:
-        return LIQUIDATION_RATIO[iasset]
-    logging.getLogger('liquidations').warning(
-        f'Unknown iAsset "{iasset}"; using default liquidation ratio '
-        f'{DEFAULT_LIQUIDATION_RATIO}. Add it to LIQUIDATION_RATIO.'
-    )
-    return DEFAULT_LIQUIDATION_RATIO
+def collateral_asset_name(collateral_asset: str) -> str:
+    if not collateral_asset:
+        return 'ADA'
+    try:
+        _, hex_name = collateral_asset.split('.')
+        return bytes.fromhex(hex_name).decode('ascii')
+    except Exception:
+        return ''
 
 
 def format_iasset_amount(iasset: str, amount: float) -> str:
@@ -178,21 +157,23 @@ def liquidation_to_post_data(lq: dict) -> dict:
     # asset's smallest unit (lovelaces for ADA, the only collateral so far).
     collateral_amount = float(lq['collateral_absorbed']) / 1_000_000
     collateral_usd_price = float(lq['collateral_asset_usd_price'])
+    collateral_asset = collateral_asset_name(lq['collateral_asset'])
+    
+    # iasset_usd_price = float(lq['iasset_usd_price'])
     collateral_usd = collateral_amount * collateral_usd_price
 
-    mcr = liquidation_ratio(iasset)
     iasset_burned_str = format_iasset_amount(iasset, iasset_burned)
 
-    debt_usd = collateral_usd / mcr
-    sp_staker_rewards = collateral_usd - debt_usd
-    sp_staker_pct = sp_staker_rewards / collateral_usd * 100 if collateral_usd else 0
+    # debt_usd = iasset_burned * iasset_usd_price
+    # sp_staker_rewards = collateral_usd - debt_usd
+    # sp_staker_pct = sp_staker_rewards / collateral_usd * 100 if collateral_usd else 0
 
     msg = (
         f'- Burned: {get_iasset_emoji(iasset)}**{iasset_burned_str} {iasset}**\n'
-        f'- Collateral: {get_fish_scale_emoji(collateral_usd)} **${round_to_str(collateral_usd, 2)}**\n'
-        f'  - Debt: ${round_to_str(debt_usd, 2)}\n'
-        f'  - {round_to_str(sp_staker_pct, 1)}% to {iasset} SP stakers: ${round_to_str(sp_staker_rewards, 2)}\n'
-        f'- Collateral asset price: ${round_to_str(collateral_usd_price, 6)}\n'
+        f'- Collateral: {get_fish_scale_emoji(collateral_usd)} **{round_to_str(collateral_amount, 6)} {collateral_asset}** (~${round_to_str(collateral_usd, 2)})\n'
+        # f'  - Debt: ${round_to_str(debt_usd, 2)}\n'
+        # f'  - {round_to_str(sp_staker_pct, 1)}% to {iasset} SP stakers: ${round_to_str(sp_staker_rewards, 2)}\n'
+        # f'- Collateral asset price: ${round_to_str(collateral_usd_price, 6)}\n'
         f'[cexplorer.io](<https://cexplorer.io/tx/{lq["output_hash"]}>)  ✧  '
         f'[adastat.net](<https://adastat.net/transactions/{lq["output_hash"]}>)  ✧  '
         f'[cardanoscan.io](<https://cardanoscan.io/transaction/{lq["output_hash"]}>)  ✧  '
